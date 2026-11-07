@@ -9,6 +9,7 @@
   <img alt="Redis" src="https://img.shields.io/badge/Redis-6%2B-dc382d">
   <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
 </p>
+<p align="center"><sub>Независимый проект сообщества, не связан с NocoBase и не одобрен NocoBase.</sub></p>
 
 NocoBase (community) — это один процесс Node.js, то есть **одно ядро процессора**, каким бы большим ни был сервер. `nocobase-multicore` запускает его как **несколько рабочих процессов за одним портом**, распределяет запросы по загрузке и переносит всё, что должно быть общим (события, блокировки, очередь задач, id записей, кэш), в Redis. Ядро NocoBase **не патчится**: это пять обычных плагинов и небольшой лаунчер, плюс страница *Настройки → Многоядерный режим*.
 
@@ -429,6 +430,8 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/OPERATIONS.md](docs/OPERATIONS.md) · [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md) · [docs/TEST-REPORT.md](docs/TEST-REPORT.md) · [CHANGELOG.md](CHANGELOG.md) · [AGENTS.md](AGENTS.md)
 
-## Лицензия
+## Лицензия и юридическая информация
 
-AGPL-3.0-only (как и NocoBase community).
+nocobase-multicore — свободное ПО под лицензией **GNU AGPL v3.0 only**: см. [LICENSE](LICENSE) и [NOTICE](NOTICE). Запуск без изменений на ваших серверах никаких обязательств не налагает. Если вы изменили проект и даёте другим пользоваться изменённой версией по сети, AGPL требует предложить им ваш исходный код.
+
+**Это независимый проект сообщества. Он не связан с NocoBase, не спонсируется и не одобрен NocoBase.** «NocoBase» — название и товарный знак его владельца; здесь оно используется только для указания, с чем работает программа. В репозитории нет кода NocoBase: проект устанавливается в *вашу* копию NocoBase и не меняет её брендинг. Сам NocoBase распространяется отдельно, по [NocoBase License Agreement](https://github.com/nocobase/nocobase/blob/main/LICENSE.txt) (Apache-2.0 с дополнительными условиями). Прочитайте его для своей установки.

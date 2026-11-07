@@ -8,7 +8,7 @@ Read this file first. It tells you what the project is, how it is built, how to 
 
 NocoBase (community edition) is a single Node.js process. Its open core already contains pluggable adapters for everything that must be shared between processes, but the default adapters are in-memory. This repo supplies **Redis-backed adapters as NocoBase plugins**, a **supervisor** that runs N worker processes sharing one port (`node:cluster`), and a **manager plugin** with the UI and API. No NocoBase core code is patched.
 
-Licence: AGPL-3.0-only. Package scope: `@nb-multicore/*`. Target: NocoBase `2.x` (developed and tested on `2.2.33`, Docker image `nocobase/nocobase`).
+Licence: AGPL-3.0-only (this project; NocoBase itself is under its own NocoBase License Agreement, see `NOTICE`). Package scope: `@nb-multicore/*`. Target: NocoBase `2.x` (developed and tested on `2.2.33`, Docker image `nocobase/nocobase`).
 
 ## 2. Components
 

@@ -9,6 +9,7 @@
   <img alt="Redis" src="https://img.shields.io/badge/Redis-6%2B-dc382d">
   <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
 </p>
+<p align="center"><sub>Independent community project, not affiliated with or endorsed by NocoBase.</sub></p>
 
 NocoBase (community edition) is a single Node.js process — **one CPU core**, however big your server is. `nocobase-multicore` starts it as **several worker processes behind one port**, balances requests between them by load, and moves everything that must be shared (events, locks, job queue, record ids, cache) to Redis. The NocoBase core is **not patched**: it is five ordinary plugins plus a small launcher, with an admin page under *Settings → Multi-core mode*.
 
@@ -455,6 +456,8 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/OPERATIONS.md](docs/OPERATIONS.md) · [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md) · [docs/TEST-REPORT.md](docs/TEST-REPORT.md) · [CHANGELOG.md](CHANGELOG.md) · [AGENTS.md](AGENTS.md)
 
-## License
+## License and legal notice
 
-AGPL-3.0-only (same as NocoBase community edition).
+nocobase-multicore is free software under the **GNU AGPL v3.0 only**: see [LICENSE](LICENSE) and [NOTICE](NOTICE). Running it unmodified on your own servers puts no obligations on you. If you modify it and let other people use your modified version over a network, the AGPL requires you to offer them your source code.
+
+**This is an independent community project. It is not affiliated with, sponsored by or endorsed by NocoBase.** "NocoBase" is a name and trademark of its owner and is used here only to say what the software works with. This repository contains no NocoBase code: it installs into *your own* NocoBase and does not change any NocoBase branding. NocoBase itself is licensed separately, under the [NocoBase License Agreement](https://github.com/nocobase/nocobase/blob/main/LICENSE.txt) (Apache-2.0 plus additional terms). Please read it for your own installation.

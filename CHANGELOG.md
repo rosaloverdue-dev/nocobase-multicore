@@ -10,6 +10,7 @@ Highlights of the release:
 * Admin page in English, Russian and Simplified Chinese; menu title is localised; per-worker requests in flight / served.
 * English documentation and README with language switcher (EN / RU / 中文); Russian originals of the long docs in `docs/ru/`.
 * Unit tests for the balancer (`npm run test:unit`).
+* Legal: `LICENSE` now holds the full AGPL-3.0 text; new `NOTICE` (independent project, NocoBase trademark, NocoBase's own license terms); both ship inside every archive.
 
 Details:
 

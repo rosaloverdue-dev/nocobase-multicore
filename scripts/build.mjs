@@ -139,6 +139,7 @@ for (const dir of plugins) {
   fs.writeFileSync(path.join(out, 'server.d.ts'), `export * from './dist/server';\nexport { default } from './dist/server';\n`);
   fs.copyFileSync(path.join(srcDir, 'package.json'), path.join(out, 'package.json'));
   fs.copyFileSync(path.join(root, 'LICENSE'), path.join(out, 'LICENSE'));
+  fs.copyFileSync(path.join(root, 'NOTICE'), path.join(out, 'NOTICE'));
 
   const tgz = path.join(buildDir, `${pkg.name.replace('@', '').replace('/', '-')}-${pkg.version}.tgz`);
   execFileSync('tar', ['czf', tgz, '-C', out, '.']);
@@ -150,6 +151,7 @@ const sup = path.join(packagesDir, 'supervisor');
 const supPkg = JSON.parse(fs.readFileSync(path.join(sup, 'package.json'), 'utf8'));
 const supOut = path.join(buildDir, 'supervisor');
 fs.cpSync(sup, supOut, { recursive: true });
+for (const f of ['LICENSE', 'NOTICE']) fs.copyFileSync(path.join(root, f), path.join(supOut, f));
 if (process.env.MINIFY === '1') {
   for (const rel of ['lib/config.js', 'lib/supervisor.js']) {
     const file = path.join(supOut, rel);
@@ -165,6 +167,7 @@ const bundleName = `nocobase-multicore-bundle-${supPkg.version}`;
 const bundleDir = path.join(buildDir, 'bundle', bundleName);
 fs.mkdirSync(bundleDir, { recursive: true });
 for (const f of fs.readdirSync(buildDir)) if (f.endsWith('.tgz')) fs.copyFileSync(path.join(buildDir, f), path.join(bundleDir, f));
+for (const f of ['LICENSE', 'NOTICE']) fs.copyFileSync(path.join(root, f), path.join(bundleDir, f));
 for (const f of ['install.sh', 'uninstall.sh']) {
   fs.copyFileSync(path.join(root, 'scripts', f), path.join(bundleDir, f));
   fs.chmodSync(path.join(bundleDir, f), 0o755);

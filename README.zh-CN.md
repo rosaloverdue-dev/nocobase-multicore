@@ -3,6 +3,7 @@
 <h1 align="center">nocobase-multicore</h1>
 <p align="center"><b>让 NocoBase 2.x 用上所有 CPU 核心——一键开启，一条命令安装。</b></p>
 <p align="center">
+  <a href="https://github.com/rosaloverdue-dev/nocobase-multicore"><img alt="Views" src="https://komarev.com/ghpvc/?username=nocobase-multicore&color=007ec6&style=flat-square&label=Views"></a>
   <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
   <img alt="NocoBase" src="https://img.shields.io/badge/NocoBase-2.x-2f54eb">
   <img alt="tested" src="https://img.shields.io/badge/tested-2.2.33-brightgreen">

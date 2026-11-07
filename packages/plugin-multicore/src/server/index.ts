@@ -6,6 +6,7 @@ import { Plugin } from '@nocobase/server';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cfg = require('../../../supervisor/lib/config.js');
 import { isClusterMode, keyPrefix, redisUrl, sleep } from '../../../shared/src/env';
+import { turnOffClusterMode } from '../../../shared/src/safeguard';
 
 const ADAPTER_PLUGINS = {
   pubsub: '@rosal-nb/plugin-pubsub-adapter-redis',
@@ -22,6 +23,14 @@ const SELFTEST_QUEUE = 'multicore.selftest';
 type Pending = { resolve: (value: any) => void; timer: NodeJS.Timeout };
 
 export class PluginMulticore extends Plugin {
+  async beforeDisable() {
+    turnOffClusterMode(this.app, 'plugin plugin-multicore is being disabled');
+  }
+
+  async beforeRemove() {
+    turnOffClusterMode(this.app, 'plugin plugin-multicore is being removed');
+  }
+
   private redis: any;
   private heartbeatTimer?: NodeJS.Timeout;
   private loopDelay = monitorEventLoopDelay({ resolution: 20 });
@@ -256,7 +265,11 @@ export class PluginMulticore extends Plugin {
       queue: { plugin: this.pluginState(ADAPTER_PLUGINS.queue), active: app.eventQueue?.adapter?.kind === 'redis' },
       workerId: {
         plugin: this.pluginState(ADAPTER_PLUGINS.workerId),
-        active: app.workerIdAllocator?.adapter?.kind === 'redis',
+        // really in effect: the redis adapter holds a lease AND the core uses exactly that id for snowflake ids
+        active:
+          app.workerIdAllocator?.adapter?.kind === 'redis' &&
+          app.workerIdAllocator.adapter.currentId != null &&
+          app.workerIdAllocator.adapter.currentId === app.instanceId,
       },
       cache: { active: (app.cacheManager?.defaultStore || process.env.CACHE_DEFAULT_STORE) === 'redis' },
     };
@@ -417,6 +430,13 @@ export class PluginMulticore extends Plugin {
       duplicates,
       byWorker,
       ok: processed.length === total && duplicates === 0,
+    };
+    // 4) every worker has its own snowflake worker id (otherwise two workers can create the same primary key)
+    const ids = workers.map((w: any) => w?.instanceId ?? w?.identity?.instanceId ?? null);
+    result.checks.workerIds = {
+      ids,
+      distinct: new Set(ids.filter((v: any) => v !== null)).size,
+      ok: ids.every((v: any) => v !== null) && new Set(ids).size === ids.length,
     };
     result.ok = Object.values(result.checks).every((c: any) => c.ok);
     await redis.del(hash);

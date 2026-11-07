@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Plugin } from '@nocobase/server';
 import { keyPrefix, skipReason, sleep } from '../../../shared/src/env';
+import { turnOffClusterMode } from '../../../shared/src/safeguard';
 
 const SLOTS = 32; // NocoBase falls back to Math.random()*32, so ids live in [0, 32)
 const LEASE_MS = 30_000;
@@ -21,6 +22,11 @@ export class RedisWorkerIdAllocator {
   private timer?: NodeJS.Timeout;
 
   constructor(private app: any) {}
+
+  /** The id currently leased by this process (null until the core asked for it). */
+  get currentId(): number | null {
+    return this.id;
+  }
 
   /** The Application object is re-initialised on every reload(); the lease (and its id) must survive that. */
   rebind(app: any) {
@@ -69,28 +75,37 @@ export class RedisWorkerIdAllocator {
     }
   }
 
+  /**
+   * Called by the core on every Application.stop(), which also happens on a plain app reload (e.g. after enabling
+   * a plugin) while the process - and the snowflake generator that already uses this id - keeps running.
+   * Dropping the lease here would let another worker take the same id. So the lease is kept and renewed for as long
+   * as the process lives; when the process exits the lease simply expires (30 s).
+   */
   async release(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
-    if (this.id === null || !this.client?.isOpen) return;
-    const id = this.id;
-    this.id = null;
-    try {
-      await this.client.eval(RELEASE_SCRIPT, { keys: [this.key(id)], arguments: [this.token] });
-    } catch (e) {
-      // the lease expires on its own
-    }
+    return;
   }
 }
 
 export class PluginWorkerIdAllocatorRedis extends Plugin {
-  async beforeLoad() {
+  async beforeDisable() {
+    turnOffClusterMode(this.app, 'plugin plugin-worker-id-allocator-redis is being disabled');
+  }
+
+  async beforeRemove() {
+    turnOffClusterMode(this.app, 'plugin plugin-worker-id-allocator-redis is being removed');
+  }
+
+  /**
+   * Must be done in afterAdd(): Application.load() initialises the plugins (afterAdd) and then immediately asks
+   * workerIdAllocator for the id. Plugin.beforeLoad() runs later (inside pm.load()), i.e. too late - the core would
+   * already have picked a random id and two workers could collide ("id must be unique" on insert).
+   */
+  async afterAdd() {
     const reason = skipReason();
     if (reason) {
       this.app.logger.info(`[multicore] worker-id allocator not activated: ${reason}`);
       return;
     }
-    // Application.load() asks for the id right after the "beforeLoad" event, i.e. after this hook.
     const holder = globalThis as any;
     if (!holder.__mcoreWorkerId) holder.__mcoreWorkerId = new RedisWorkerIdAllocator(this.app);
     else holder.__mcoreWorkerId.rebind(this.app);

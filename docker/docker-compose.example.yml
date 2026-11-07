@@ -1,8 +1,8 @@
 # Self-contained example: Postgres + Redis + NocoBase running under the multicore supervisor.
 # Copy .env.example to .env, fill the passwords, build the plugins (`node scripts/build.mjs`), then:
-#   mkdir -p storage/plugins/@rosal-nb && cp -r build/plugin-* storage/plugins/@rosal-nb/   # rename dirs: plugin-x -> plugin-x (same names)
 #   docker compose -f docker/docker-compose.example.yml up -d
-# First run: enable the five plugins (yarn nocobase pm add/enable, see docs/OPERATIONS.md), then Settings -> Multi-core mode.
+#   ./scripts/install.sh --docker nocobase-multicore-app-1      # adds + enables the 5 plugins (see docs/OPERATIONS.md)
+# then open Settings -> Multi-core mode.
 name: nocobase-multicore
 services:
   pg:
@@ -31,7 +31,7 @@ services:
       pg: { condition: service_healthy }
       redis: { condition: service_started }
     ports: ["13000:80"]
-    entrypoint: ["/bin/sh", "/multicore-entrypoint.sh"]
+    entrypoint: ["/bin/sh", "/multicore/docker/entrypoint.sh"]
     env_file: [.env]
     environment:
       APP_ENV: production
@@ -42,11 +42,9 @@ services:
       DB_USER: nocobase
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379/0
-      MULTICORE_APP_ENTRY: /app/nocobase/node_modules/@nocobase/app/lib/index.js
       INIT_ROOT_EMAIL: admin@example.com
       INIT_ROOT_USERNAME: admin
       INIT_ROOT_PASSWORD: ${ROOT_PASSWORD}
     volumes:
       - ./storage:/app/nocobase/storage
       - ./packages/supervisor:/multicore:ro
-      - ./docker/entrypoint-multicore.sh:/multicore-entrypoint.sh:ro

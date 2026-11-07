@@ -1,10 +1,19 @@
 import { Plugin } from '@nocobase/server';
 import { skipReason } from '../../../shared/src/env';
 import { RedisLockAdapter } from './adapter';
+import { turnOffClusterMode } from '../../../shared/src/safeguard';
 
 export { RedisLockAdapter };
 
 export class PluginLockAdapterRedis extends Plugin {
+  async beforeDisable() {
+    turnOffClusterMode(this.app, 'plugin plugin-lock-adapter-redis is being disabled');
+  }
+
+  async beforeRemove() {
+    turnOffClusterMode(this.app, 'plugin plugin-lock-adapter-redis is being removed');
+  }
+
   async beforeLoad() {
     const reason = skipReason();
     if (reason) {

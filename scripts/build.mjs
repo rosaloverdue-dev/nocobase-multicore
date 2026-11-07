@@ -160,4 +160,22 @@ const supTgz = path.join(buildDir, `nocobase-multicore-supervisor-${supPkg.versi
 execFileSync('tar', ['czf', supTgz, '-C', supOut, '.']);
 summary.push(`${supPkg.name}@${supPkg.version} -> ${path.relative(root, supTgz)}`);
 
+// one-download bundle: every package + the installer scripts (tar xzf, then ./install.sh --docker <container>)
+const bundleName = `nocobase-multicore-bundle-${supPkg.version}`;
+const bundleDir = path.join(buildDir, 'bundle', bundleName);
+fs.mkdirSync(bundleDir, { recursive: true });
+for (const f of fs.readdirSync(buildDir)) if (f.endsWith('.tgz')) fs.copyFileSync(path.join(buildDir, f), path.join(bundleDir, f));
+for (const f of ['install.sh', 'uninstall.sh']) {
+  fs.copyFileSync(path.join(root, 'scripts', f), path.join(bundleDir, f));
+  fs.chmodSync(path.join(bundleDir, f), 0o755);
+}
+fs.writeFileSync(
+  path.join(bundleDir, 'INSTALL.txt'),
+  `nocobase-multicore ${supPkg.version}\n\nDocker:  ./install.sh --docker <container-name>\nLocal:   ./install.sh --local <nocobase-project-dir>\nRemove:  ./uninstall.sh --docker <container-name>\n\nEach rosal-nb-plugin-*.tgz can also be uploaded in NocoBase: Settings -> Plugin manager -> Add -> Upload.\nFull docs (EN/ZH/RU): https://github.com/rosaloverdue-dev/nocobase-multicore\n`,
+);
+const bundleTgz = path.join(buildDir, `${bundleName}.tgz`);
+execFileSync('tar', ['czf', bundleTgz, '-C', path.join(buildDir, 'bundle'), bundleName]);
+fs.rmSync(path.join(buildDir, 'bundle'), { recursive: true, force: true });
+summary.push(`bundle -> ${path.relative(root, bundleTgz)}`);
+
 console.log(summary.join('\n'));

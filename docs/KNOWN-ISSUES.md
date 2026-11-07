@@ -6,7 +6,22 @@
 * Redis without the RedisBloom module logs a `BF.RESERVE` warning from the token blacklist; the app works (a fallback is used).
 * Very high concurrency of **synchronous** workflows (≈200 requests × 12) can stall even stock single-process NocoBase.
 
+## Plugins that keep state in process memory (users kicked out, 401 reload loop)
+Some NocoBase plugins remember things in a plain JavaScript `Map` / variable of the running process instead of the database or Redis. With one process that is fine; with several workers each worker knows only its own part of the picture.
+
+*Example (found while testing):* `@nocobase/plugin-online-count` keeps the "online sessions" and "kicked tokens" in memory. A user whose requests are served by worker A is heartbeating only to A; worker B has never seen the session, decides it is gone and answers `401 SESSION_KICKED_OUT`. The browser then reloads the page again and again ("request failed with status code 401" loop).
+
+How to recognise it: some users randomly get logged out / 401 / "session expired" only when several workers are on; with **one worker everything is fine**; the log of one worker shows no problem, the other answers 401.
+
+What you can do (from the simplest):
+1. **Turn on worker affinity** in *Settings → Multi-core mode → "Worker affinity"* ("By login token"). The same user is then always served by the same worker, so a per-process memory is consistent for that user. It is **off by default**, takes effect instantly (no restart) and can be turned off again at any time. Trade-offs: the load is spread less evenly (a user who works a lot keeps the same worker); a worker that is stalled or much busier than the others is skipped (so a request may still land on another worker — rare, but the guarantee is "best effort", not absolute); numbers that are *global by nature* ("how many users are online in total") are still wrong, because each worker counts only its own users.
+2. Disable the plugin, or run with **1 worker** (switch multi-core mode off).
+3. Ask the plugin author to keep that state in the database or Redis. Plugins that only use the database, cache (Redis is the cache store in cluster mode), `app.lockManager`, `app.pubSubManager` and `app.eventQueue` are fine.
+
+How to look for such plugins yourself: search the plugin's server code for module-level `new Map()` / `new Set()` / arrays that are written while handling requests, and for `setInterval` jobs that act on them.
+
 ## Limitations of this project
+* Worker affinity (optional, off by default) is best effort: it does not make a per-process memory of a third-party plugin correct for numbers that are global by nature.
 * `pm enable` / uploading a plugin from the UI while the cluster is running reaches only one worker — restart the app afterwards.
 * Local-storage file uploads need a volume shared by all workers (automatic inside one container).
 * Queue delivery is *at-least-once*: if a worker dies mid-job another one runs it again. Make workflow actions idempotent.

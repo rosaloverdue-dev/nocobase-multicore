@@ -14,17 +14,22 @@
  */
 const http = require('node:http');
 const net = require('node:net');
+const crypto = require('node:crypto');
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade']);
 
 class Balancer {
-  constructor({ log = () => {}, stallMs = 2500 } = {}) {
+  constructor({ log = () => {}, stallMs = 2500, overflow = 4 } = {}) {
     this.log = log;
     this.stallMs = stallMs;
+    // Worker affinity: 'off' (default, pure least-busy) | 'token' (same login token -> same worker) | 'ip' (same client address).
+    // The preferred worker is only used while it is healthy and not much busier than the least-busy one.
+    this.affinity = 'off';
+    this.overflow = overflow;
     this.ups = [];
     this.rr = 0;
     this.server = null;
-    this.stats = { requests: 0, errors: 0, noUpstream: 0, retries: 0 };
+    this.stats = { requests: 0, errors: 0, noUpstream: 0, retries: 0, sticky: 0, overflowed: 0 };
   }
 
   listen(port, host) {
@@ -99,7 +104,59 @@ class Balancer {
     });
   }
 
-  pick(isWs, exclude) {
+  setAffinity(mode) {
+    const next = mode === 'token' || mode === 'ip' ? mode : 'off';
+    if (next !== this.affinity) this.log(`affinity: ${this.affinity} -> ${next}`);
+    this.affinity = next;
+  }
+
+  /** Stable per-user key of a request, or null when there is nothing to stick to (anonymous request in token mode). */
+  affinityKey(req) {
+    if (this.affinity === 'ip') {
+      const xff = req.headers['x-forwarded-for'];
+      const first = xff ? String(xff).split(',')[0].trim() : '';
+      return first || (req.socket && req.socket.remoteAddress) || null;
+    }
+    if (this.affinity === 'token') {
+      const auth = req.headers.authorization;
+      if (auth && /^Bearer\s+\S+/i.test(auth)) return auth.replace(/^Bearer\s+/i, '');
+      const url = req.url || '';
+      const q = url.indexOf('?');
+      if (q >= 0) {
+        const t = new URLSearchParams(url.slice(q + 1)).get('token');
+        if (t) return t;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  pick(isWs, exclude, key) {
+    const best = this.leastBusy(isWs, exclude);
+    if (!key || this.affinity === 'off' || !best) return best;
+    // rendezvous hashing: the preferred worker of a key stays the same when other workers come and go
+    const now = Date.now();
+    let preferred = null;
+    let top = null;
+    for (const u of this.ups) {
+      if (u.draining || u === exclude) continue;
+      const h = crypto.createHash('sha1').update(`${key}|${u.slot.id}`).digest().readUInt32BE(0);
+      if (top === null || h > top) {
+        top = h;
+        preferred = u;
+      }
+    }
+    if (!preferred || preferred === best) return best;
+    const stalled = now - preferred.lastBeat > this.stallMs;
+    if (stalled || preferred.inflight > best.inflight + this.overflow) {
+      this.stats.overflowed += 1;
+      return best;
+    }
+    this.stats.sticky += 1;
+    return preferred;
+  }
+
+  leastBusy(isWs, exclude) {
     const now = Date.now();
     const n = this.ups.length;
     let best = null;
@@ -121,7 +178,8 @@ class Balancer {
   snapshot() {
     const now = Date.now();
     return {
-      mode: 'least-busy',
+      mode: this.affinity === 'off' ? 'least-busy' : `sticky-${this.affinity}`,
+      affinity: this.affinity,
       ...this.stats,
       upstreams: this.ups.map((u) => ({
         slot: u.slot.id,
@@ -138,7 +196,7 @@ class Balancer {
   // ---------- plain HTTP ----------
   onRequest(req, res) {
     this.stats.requests += 1;
-    this.forward(req, res, this.pick(false), 0, null);
+    this.forward(req, res, this.pick(false, undefined, this.affinityKey(req)), 0, null);
   }
 
   forward(req, res, up, attempt, failed) {
@@ -198,7 +256,7 @@ class Balancer {
         (err.syscall === 'connect' || (['GET', 'HEAD', 'OPTIONS'].includes(req.method) && ['ECONNRESET', 'EPIPE'].includes(err.code)));
       if (retryable) {
         this.stats.retries += 1;
-        return this.forward(req, res, this.pick(false, up), 1, up);
+        return this.forward(req, res, this.pick(false, up, this.affinityKey(req)), 1, up);
       }
       this.stats.errors += 1;
       if (!res.headersSent) {
@@ -221,7 +279,7 @@ class Balancer {
 
   // ---------- WebSocket / Upgrade ----------
   onUpgrade(req, socket, head) {
-    const up = this.pick(true);
+    const up = this.pick(true, undefined, this.affinityKey(req));
     if (!up) {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       return;

@@ -142,7 +142,8 @@ class Supervisor {
 
   async doReconcile(reason) {
     if (this.stopping) return;
-    const { mode, count } = this.desired();
+    const { mode, count, cfg } = this.desired();
+    if (this.balancerOn) this.balancer.setAffinity(cfg.affinity); // hot: no worker restart
     this.log(`reconcile (${reason}): desired mode=${mode} workers=${count}`);
 
     const live = () => [...this.slots.values()].filter((s) => !s.draining).sort((a, b) => a.id - b.id);

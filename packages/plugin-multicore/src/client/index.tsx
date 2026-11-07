@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, InputNumber, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, InputNumber, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { Plugin, useAPIClient, useApp } from '@nocobase/client';
 
 const { Text, Paragraph } = Typography;
@@ -60,6 +60,11 @@ const DICT: Record<string, Record<string, string>> = {
     duplicates: 'дублей',
     distribution: 'распределение по воркерам',
     restartNote: 'Переключение происходит плавно: новые воркеры стартуют, старые завершаются. Это занимает до минуты.',
+    affinity: 'Привязка пользователя к воркеру',
+    affinityOff: 'Выключена (по умолчанию)',
+    affinityToken: 'По токену входа (рекомендуется)',
+    affinityIp: 'По IP-адресу клиента',
+    affinityHint: 'Нужна, если какие-то плагины хранят состояние в памяти процесса (например, счётчик онлайна): тогда каждый пользователь стабильно попадает на «свой» воркер. Применяется сразу, без перезапуска. Минус: нагрузка распределяется менее ровно; воркер, который завис или сильно перегружен, пользователя не держит.',
     enabledState: 'включён',
     disabledState: 'отключён',
     missingState: 'не установлен',
@@ -118,6 +123,11 @@ const DICT: Record<string, Record<string, string>> = {
     duplicates: 'duplicates',
     distribution: 'distribution across workers',
     restartNote: 'Switching is rolling: new workers start, old ones stop. It can take up to a minute.',
+    affinity: 'Worker affinity (sticky)',
+    affinityOff: 'Off (default)',
+    affinityToken: 'By login token (recommended)',
+    affinityIp: 'By client IP address',
+    affinityHint: 'Use it when some plugins keep state in process memory (e.g. an online-users counter): each user then consistently lands on the same worker. Applied instantly, no restart. Trade-off: the load is spread less evenly; a stalled or heavily loaded worker does not hold on to its users.',
     enabledState: 'enabled',
     disabledState: 'disabled',
     missingState: 'not installed',
@@ -176,6 +186,11 @@ const DICT: Record<string, Record<string, string>> = {
     duplicates: '重复',
     distribution: '各工作进程的分布',
     restartNote: '切换是滚动进行的：先启动新的工作进程，再停止旧的，最多需要一分钟。',
+    affinity: '工作进程亲和（粘性路由）',
+    affinityOff: '关闭（默认）',
+    affinityToken: '按登录令牌（推荐）',
+    affinityIp: '按客户端 IP 地址',
+    affinityHint: '当某些插件把状态保存在进程内存中（例如在线人数统计）时启用：同一用户将始终落到同一个工作进程。立即生效，无需重启。代价：负载分配不够均匀；卡顿或过载的工作进程不会继续占住它的用户。',
     enabledState: '已启用',
     disabledState: '已禁用',
     missingState: '未安装',
@@ -203,6 +218,7 @@ const MulticoreSettings: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [workers, setWorkers] = useState(2);
+  const [affinity, setAffinity] = useState('off');
   const [dirty, setDirty] = useState(false);
   const [applying, setApplying] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -219,6 +235,7 @@ const MulticoreSettings: React.FC = () => {
       if (data && !dirtyRef.current) {
         setEnabled(Boolean(data.config?.enabled));
         setWorkers(Math.max(1, Number(data.config?.workers) || 2));
+        setAffinity(data.config?.affinity || 'off');
       }
     } catch (e: any) {
       setError(e?.response?.data?.errors?.[0]?.message || e?.message || String(e));
@@ -234,7 +251,7 @@ const MulticoreSettings: React.FC = () => {
   const apply = async () => {
     setApplying(true);
     try {
-      await api.request({ url: 'multicore:apply', method: 'post', data: { enabled, workers } });
+      await api.request({ url: 'multicore:apply', method: 'post', data: { enabled, workers, affinity } });
       message.success(t('saved'));
       setDirty(false);
       await load();
@@ -311,11 +328,26 @@ const MulticoreSettings: React.FC = () => {
               onChange={(v) => { setWorkers(Number(v) || 1); setDirty(true); }} />
             <Text type="secondary">({t('cpus')}: {status?.cpus ?? '…'})</Text>
           </Space>
+          <Space>
+            <Text>{t('affinity')}</Text>
+            <Select
+              style={{ minWidth: 240 }}
+              value={affinity}
+              disabled={!enabled}
+              onChange={(v) => { setAffinity(v); setDirty(true); }}
+              options={[
+                { value: 'off', label: t('affinityOff') },
+                { value: 'token', label: t('affinityToken') },
+                { value: 'ip', label: t('affinityIp') },
+              ]}
+            />
+          </Space>
           <Button type="primary" loading={applying} disabled={!dirty} onClick={apply}>
             {applying ? t('applying') : t('apply')}
           </Button>
         </Space>
-        <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+        <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 4 }}>{t('affinityHint')}</Paragraph>
+        <Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 0 }}>
           {t('current')}: <b>{status?.workers?.length ?? '…'}</b> {t('processes')},{' '}
           {status?.clusterModeActive ? t('cluster') : t('single')}
           {supervisedWorkers != null ? ` · supervisor: ${supervisedWorkers}` : ''}. {t('restartNote')}

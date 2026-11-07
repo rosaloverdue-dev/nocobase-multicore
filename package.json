@@ -1,6 +1,6 @@
 {
   "name": "nocobase-multicore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Open-source plugins that let NocoBase 2.x run on multiple CPU cores: Redis adapters (pub/sub, locks, queue, worker id), a node:cluster supervisor and an admin switch.",
   "license": "AGPL-3.0-only",

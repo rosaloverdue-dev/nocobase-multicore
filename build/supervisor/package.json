@@ -1,0 +1,9 @@
+{
+  "name": "@nb-multicore/multicore-supervisor",
+  "version": "0.1.1",
+  "description": "node:cluster launcher for NocoBase 2.x: N workers share one port, worker count is controlled from the NocoBase admin UI.",
+  "license": "AGPL-3.0-only",
+  "main": "lib/supervisor.js",
+  "bin": { "nocobase-multicore": "bin/nocobase-multicore.js" },
+  "engines": { "node": ">=20" }
+}

@@ -23,14 +23,14 @@ NocoBase (community) — это один процесс Node.js, то есть *
 | Установка | — | одна команда (Docker Compose: Redis включён) |
 | Удаление | — | одна команда, снова обычный NocoBase; удаление плагина само выключает кластер |
 
-> Статус `0.1.0` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
+> Статус `0.1.1` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
 
 ## Быстрый старт
 
 NocoBase в **Docker Compose**? Одна команда (на хосте Docker; `<container>` — имя контейнера приложения из `docker ps`):
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+tar xzf nocobase-multicore-bundle-0.1.1.tgz && cd nocobase-multicore-bundle-0.1.1
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -41,7 +41,7 @@ NocoBase запущен из папки проекта (без Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # вместо `yarn start`
 ```
-Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.1.0`](releases/v0.1.0), или соберите: `node scripts/build.mjs`).
+Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.1.1`](releases/v0.1.1), или соберите: `node scripts/build.mjs`).
 
 ## Что внутри
 
@@ -85,6 +85,8 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 Живые числа (запросов в работе / обработано) видны на странице и в `storage/multicore/status.json`. `MULTICORE_BALANCER=off` возвращает обычный режим с общим портом.
 
+**Привязка к воркеру (необязательно, по умолчанию выключена).** Обычно два запроса одного пользователя могут обслужить разные воркеры. Для всего, что NocoBase хранит в базе или Redis, это нормально, но некоторые сторонние плагины держат состояние в памяти одного процесса (см. [известные проблемы](docs/KNOWN-ISSUES.md)). Для них включите *Настройки → Многоядерный режим → Привязка пользователя к воркеру*: **по токену входа** (рекомендуется) или **по IP клиента**. Пользователь тогда стабильно попадает на один и тот же воркер; если этот воркер завис или заметно загружен сильнее остальных (больше чем на 4 запроса), запрос уходит наименее загруженному — никого не «приколачивает» к замершему процессу. Применяется мгновенно, без перезапуска воркеров, выключается там же. Цена: нагрузка распределяется менее ровно, а общие суммы вроде «сколько пользователей онлайн» остаются неверными — каждый воркер считает только своих.
+
 > Воркер, выполняющий один огромный синхронный запрос (например, список на 5000 строк со множеством подгружаемых связей), ничего другого не ответит, пока не закончит: JavaScript однопоточный. Балансировщик ведёт остальных мимо него, но настоящее лекарство — меньшие страницы и меньше подгружаемых связей в тяжёлых блоках.
 
 ## Требования
@@ -99,7 +101,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. Одна команда — `install.sh` (рекомендуется)
 
-Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.1.0`](releases/v0.1.0)), распакуйте и запустите:
+Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.1.1`](releases/v0.1.1)), распакуйте и запустите:
 
 ```bash
 ./install.sh --docker <имя-контейнера> [--workers N]       # Docker (Compose: Redis и entrypoint настраиваются сами)
@@ -127,9 +129,9 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 # внутри контейнера NocoBase / папки проекта
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.1.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.1.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # связывает storage/plugins с node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
@@ -193,6 +195,20 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 **Если удалить плагины, сервер продолжит работать?** Да, ручное восстановление не нужно. Отключение/удаление любого из пяти плагинов сначала записывает `enabled:false` в конфиг (*страховка*), и супервизор возвращается к **одному обычному процессу**. Плагины не создают таблиц в БД и не меняют данные; оставшиеся ключи Redis безвредны и истекают сами. Проверено: сайт отвечал 200 на протяжении всего удаления, контейнер перезапустился штатно, сохранённые рабочие процессы продолжали срабатывать. Для чистого удаления используйте `./uninstall.sh --docker <контейнер>` (с `--purge` удаляется ещё и папка супервизора — делайте это только после возврата контейнера на штатный entrypoint).
 
 **Рекомендации для боевого сервера:** сделайте резервную копию БД; сначала проверьте на копии; включайте в спокойный час; начните с 2–3 воркеров; следите за Redis (персистентность, мониторинг).
+
+## Перезапуск и обновление
+
+**Перезапустить приложение** (Docker Compose, из папки проекта): `docker compose restart app` — супервизор запускается заново и поднимает воркеры (около минуты). Без простоя можно просто изменить число воркеров на странице администратора (плавная замена). Перезапуск, который запрашивает сам NocoBase (например, после включения плагина), лишь завершает воркер, а супервизор запускает его снова. Без Docker: перезапустите процесс, который выполняет `nocobase-multicore.js`.
+
+> `install.sh` записывает в `.env` проекта строку `COMPOSE_FILE=…docker-compose.yml:…docker-compose.multicore.yml`, поэтому обычные `docker compose up -d` / `restart` сохраняют supervisor и Redis. Если вы удалили эту строку или запускаете compose из другой папки, используйте `docker compose -f docker-compose.yml -f docker-compose.multicore.yml up -d` — иначе compose проигнорирует override, и NocoBase тихо запустится одним процессом.
+
+**Обновить сам NocoBase** (проверено: 2.2.33 → 2.2.34, Docker Compose):
+1. Сделайте резервную копию базы и `storage/`.
+2. В `docker-compose.yml` смените тег образа, например `nocobase/nocobase:2.2.33` → `nocobase/nocobase:2.2.34`.
+3. `docker compose pull && docker compose up -d`.
+4. Подождите 1–3 минуты: точка входа выполнит штатное обновление NocoBase, супервизор снова поднимет воркеры. Проверьте `docker logs <контейнер> | grep '\[multicore\]'` и страницу *Настройки → Многоядерный режим*.
+
+Файлы многоядерного режима лежат в `storage/`, поэтому переживают смену образа; запускать `install.sh` заново **не нужно**. Если новый образ изменит свой стартовый скрипт, `entrypoint.sh` остановится с понятным сообщением — верните прежний тег и создайте issue. Откат: прежний тег + восстановление копии. Версии NocoBase, отличные от 2.2.x, не проверялись. Без Docker: остановите супервизор, обновите NocoBase по его документации (`yarn nocobase upgrade`), запустите супервизор снова.
 
 ## Если что-то не работает
 
@@ -404,8 +420,8 @@ NocoBase генерирует первичные ключи многих таб�
 
 **Функционал**
 
-* Каждый процесс **арендует** свободный id 0–31 в Redis (`SET NX PX 30 с`), продлевает аренду каждые 10 с и держит её, пока жив процесс.
-* Упавший процесс освобождает id автоматически через 30 с. Одновременно может работать не более 32 процессов (по умолчанию супервизор допускает не более 32 воркеров).
+* Каждый процесс **арендует** свободный id 0–31 в Redis (`SET NX PX 60 с`), продлевает аренду каждые 10 с и держит её, пока жив процесс.
+* Упавший процесс освобождает id автоматически через 60 с; потерянная аренда восстанавливается, а если id занят другим процессом — воркер под супервизором завершается и перезапускается с новым id. Одновременно может работать не более 32 процессов (по умолчанию супервизор допускает не более 32 воркеров).
 * Страница менеджера показывает id каждого воркера, а самопроверка падает, если у двух воркеров одинаковый id.
 
 **Как устроено**

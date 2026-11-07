@@ -1,0 +1,37 @@
+{
+  "name": "@nb-multicore/plugin-worker-id-allocator-redis",
+  "version": "0.1.1",
+  "displayName": "Multicore: Redis worker id allocator",
+  "displayName.ru-RU": "Multicore: выдача id воркеров через Redis",
+  "displayName.zh-CN": "Multicore：Redis 工作进程 ID 分配器",
+  "description": "Leases unique snowflake worker ids (0..31) from Redis so two workers never generate the same record id. Docs: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-worker-id-allocator-redis#readme",
+  "description.ru-RU": "Выдаёт уникальные id воркеров (0..31) через Redis, чтобы два процесса не создавали одинаковые id записей. Документация: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-worker-id-allocator-redis#readme",
+  "description.zh-CN": "通过 Redis 租用唯一的雪花算法工作进程 ID（0..31），避免两个进程生成相同的记录 ID。 文档：https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-worker-id-allocator-redis#readme",
+  "homepage": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-worker-id-allocator-redis#readme",
+  "homepage.ru-RU": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-worker-id-allocator-redis#readme",
+  "homepage.zh-CN": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-worker-id-allocator-redis#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosaloverdue-dev/nocobase-multicore.git",
+    "directory": "packages/plugin-worker-id-allocator-redis"
+  },
+  "bugs": {
+    "url": "https://github.com/rosaloverdue-dev/nocobase-multicore/issues"
+  },
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x"
+  }
+}

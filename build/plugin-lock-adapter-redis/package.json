@@ -1,0 +1,38 @@
+{
+  "name": "@nb-multicore/plugin-lock-adapter-redis",
+  "version": "0.1.1",
+  "displayName": "Multicore: Redis lock adapter",
+  "displayName.ru-RU": "Multicore: адаптер блокировок Redis",
+  "displayName.zh-CN": "Multicore：Redis 锁适配器",
+  "description": "Redis distributed locks (SET NX PX + Lua) so workflows, imports and schedulers never run twice across processes. Docs: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-lock-adapter-redis#readme",
+  "description.ru-RU": "Распределённые блокировки на Redis (SET NX PX + Lua): рабочие процессы, импорт и планировщики не выполняются дважды в разных процессах. Документация: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-lock-adapter-redis#readme",
+  "description.zh-CN": "Redis 分布式锁（SET NX PX + Lua）：工作流、导入和计划任务不会在多个进程中重复执行。 文档：https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-lock-adapter-redis#readme",
+  "homepage": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-lock-adapter-redis#readme",
+  "homepage.ru-RU": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-lock-adapter-redis#readme",
+  "homepage.zh-CN": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-lock-adapter-redis#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosaloverdue-dev/nocobase-multicore.git",
+    "directory": "packages/plugin-lock-adapter-redis"
+  },
+  "bugs": {
+    "url": "https://github.com/rosaloverdue-dev/nocobase-multicore/issues"
+  },
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x",
+    "@nocobase/lock-manager": "2.x"
+  }
+}

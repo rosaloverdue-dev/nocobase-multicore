@@ -38,4 +38,4 @@ curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-multicore` · v0.1.0 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-multicore` · v0.1.1 · AGPL-3.0-only

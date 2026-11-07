@@ -23,14 +23,14 @@ NocoBase（社区版）只有一个 Node.js 进程，也就是**只用一个 CPU
 | 安装 | — | 一条命令（Docker Compose：自动带 Redis） |
 | 卸载 | — | 一条命令，恢复原生 NocoBase；移除插件会自动关闭集群 |
 
-> 状态 `0.1.0`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
+> 状态 `0.1.1`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
 
 ## 快速开始
 
 NocoBase 运行在 **Docker Compose** 中？一条命令（在 Docker 主机上执行；`<container>` 为 `docker ps` 中的应用容器名）：
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+tar xzf nocobase-multicore-bundle-0.1.1.tgz && cd nocobase-multicore-bundle-0.1.1
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -41,7 +41,7 @@ NocoBase 从项目目录运行（不用 Docker）？
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # 代替 `yarn start`
 ```
-请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.1.0`](releases/v0.1.0) 中，或自行构建：`node scripts/build.mjs`）。
+请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.1.1`](releases/v0.1.1) 中，或自行构建：`node scripts/build.mjs`）。
 
 ## 包含的内容
 
@@ -85,6 +85,8 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 实时数据（每个进程的处理中 / 已处理请求数）显示在管理页面和 `storage/multicore/status.json` 中。`MULTICORE_BALANCER=off` 可恢复为普通共享端口模式。
 
+**工作进程亲和（可选，默认关闭）。** 通常同一用户的两个请求可能由不同的工作进程处理。对于保存在数据库或 Redis 中的内容这没有问题，但某些第三方插件把状态保存在单个进程的内存里（见[已知问题](docs/KNOWN-ISSUES.md)）。对它们可在 *设置 → 多核模式 → 工作进程亲和* 中开启：**按登录令牌**（推荐）或**按客户端 IP**。同一用户将始终落到同一个工作进程；若该进程卡住或明显比其他进程繁忙（多出 4 个以上请求），请求会改发给最空闲的进程，因此不会把任何人固定在卡死的进程上。立即生效，无需重启工作进程，可在同一处关闭。代价：负载分配不够均匀；“在线用户总数”之类的汇总数字仍然不准确——每个工作进程只统计自己的用户。
+
 > 正在执行一个巨大同步请求的进程（例如带大量关联的 5000 行列表）在完成之前无法处理其他请求——JavaScript 是单线程的。均衡器会让其他用户绕开它，但根本办法是在繁重的区块中减小分页并减少附加关联。
 
 ## 环境要求
@@ -99,7 +101,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. 一条命令 — `install.sh`（推荐）
 
-从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.1.0`](releases/v0.1.0)）下载安装包，解压后运行：
+从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.1.1`](releases/v0.1.1)）下载安装包，解压后运行：
 
 ```bash
 ./install.sh --docker <容器名> [--workers N]               # Docker（Compose：自动配置 Redis 和入口）
@@ -127,9 +129,9 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 # 在 NocoBase 容器 / 项目目录内
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.1.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.1.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # 把 storage/plugins 链接到 node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
@@ -193,6 +195,20 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 **如果我删除这些插件，服务器还能继续正常运行吗？** 可以，无需手动修复。禁用/删除五个插件中的任何一个，都会先把 `enabled:false` 写入配置（*保护机制*），守护进程随即回到**单个普通进程**。插件不创建数据库表，也不修改数据；残留的 Redis 键无害，会自行过期。已测试：整个卸载过程中网站始终返回 200，容器正常重启，已保存的工作流继续触发。请使用 `./uninstall.sh --docker <容器>` 进行干净卸载（加 `--purge` 还会删除守护进程目录——仅在容器已恢复为原生入口之后再执行）。
 
 **生产环境建议：** 先备份数据库；先在预发布副本上试用；在业务低峰期开启；从 2–3 个工作进程开始；关注 Redis（持久化、监控）。
+
+## 重启与更新
+
+**重启应用**（Docker Compose，在项目目录下）：`docker compose restart app`——守护进程重新启动并拉起工作进程（约一分钟）。若想不中断服务，可在管理页面修改工作进程数量（滚动替换）。NocoBase 自身请求的重启（例如启用插件后）只会让某个工作进程退出，守护进程会再次启动它。不使用 Docker：重启运行 `nocobase-multicore.js` 的进程。
+
+> `install.sh` 会在项目的 `.env` 中写入 `COMPOSE_FILE=…docker-compose.yml:…docker-compose.multicore.yml`，因此普通的 `docker compose up -d` / `restart` 会保留守护进程和 Redis。如果你删除了这一行，或在其他目录运行 compose，请使用 `docker compose -f docker-compose.yml -f docker-compose.multicore.yml up -d`——否则 compose 会忽略覆盖文件，NocoBase 会悄悄以单进程启动。
+
+**更新 NocoBase 本身**（已验证：2.2.33 → 2.2.34，Docker Compose）：
+1. 备份数据库和 `storage/`。
+2. 在 `docker-compose.yml` 中修改镜像标签，例如 `nocobase/nocobase:2.2.33` → `nocobase/nocobase:2.2.34`。
+3. `docker compose pull && docker compose up -d`。
+4. 等待 1–3 分钟：入口脚本会执行 NocoBase 自带的升级，守护进程重新启动工作进程。检查 `docker logs <容器> | grep '\[multicore\]'` 和 *设置 → 多核模式*。
+
+多核相关文件位于 `storage/`，不会因更换镜像而丢失，**无需**重新运行 `install.sh`。如果新镜像修改了启动脚本，`entrypoint.sh` 会给出明确提示并停止——请换回旧标签并提交 issue。回滚：旧标签 + 恢复备份。2.2.x 以外的 NocoBase 版本未测试。不使用 Docker：停止守护进程，按 NocoBase 文档更新（`yarn nocobase upgrade`），再启动守护进程。
 
 ## 故障排查
 
@@ -402,8 +418,8 @@ NocoBase 用 **snowflake** 算法生成很多表的主键（工作流执行、�
 
 **功能**
 
-* 每个进程从 Redis **租用**一个 0–31 中空闲的 ID（`SET NX PX 30 秒`），每 10 秒续租，并在进程存活期间一直持有。
-* 崩溃的进程在 30 秒后自动释放其 ID。同时最多可运行 32 个进程（守护进程默认最多允许 32 个工作进程）。
+* 每个进程从 Redis **租用**一个 0–31 中空闲的 ID（`SET NX PX 60 秒`），每 10 秒续租，并在进程存活期间一直持有。
+* 崩溃的进程在 60 秒后自动释放其 ID；丢失的租约会被重新获取，若 ID 已被其他进程占用，受守护的工作进程会退出并以新 ID 重新启动。同时最多可运行 32 个进程（守护进程默认最多允许 32 个工作进程）。
 * 管理页面会显示每个工作进程的 ID；若两个工作进程 ID 相同，自检会失败。
 
 **实现方式**

@@ -172,3 +172,79 @@ test('remove() waits for in-flight requests', async () => {
   assert.equal(done, true);
   t.stop();
 });
+
+// ---------- worker affinity ----------
+const bearer = (n) => ({ Authorization: `Bearer user-token-${n}` });
+const who = async (port, headers) => JSON.parse((await get(port, '/', headers)).body).name;
+
+test('affinity is OFF by default: tokens do not stick', async () => {
+  const t = await setup(echo, echo);
+  assert.equal(t.bal.affinity, 'off');
+  assert.equal(t.bal.snapshot().mode, 'least-busy');
+  const seen = new Set();
+  for (let i = 0; i < 10; i += 1) seen.add(await who(t.port, bearer(1)));
+  assert.equal(seen.size, 2);
+  t.stop();
+});
+
+test('token affinity: same token -> same worker, different tokens spread, anonymous requests balance', async () => {
+  const t = await setup(echo, echo);
+  t.bal.setAffinity('token');
+  assert.equal(t.bal.snapshot().mode, 'sticky-token');
+  const byUser = {};
+  for (let n = 0; n < 12; n += 1) {
+    const names = new Set();
+    for (let i = 0; i < 5; i += 1) names.add(await who(t.port, bearer(n)));
+    assert.equal(names.size, 1, `user ${n} must stay on one worker`);
+    byUser[n] = [...names][0];
+  }
+  assert.equal(new Set(Object.values(byUser)).size, 2, 'users are spread over both workers');
+  const anon = new Set();
+  for (let i = 0; i < 10; i += 1) anon.add(await who(t.port));
+  assert.equal(anon.size, 2);
+  t.stop();
+});
+
+test('ip affinity uses X-Forwarded-For', async () => {
+  const t = await setup(echo, echo);
+  t.bal.setAffinity('ip');
+  for (const ip of ['10.0.0.1', '10.0.0.2', '10.0.0.3']) {
+    const names = new Set();
+    for (let i = 0; i < 5; i += 1) names.add(await who(t.port, { 'X-Forwarded-For': ip }));
+    assert.equal(names.size, 1);
+  }
+  t.stop();
+});
+
+test('affinity falls back to the other worker when the preferred one is stalled, draining or overloaded', async () => {
+  const t = await setup(echo, echo);
+  t.bal.setAffinity('token');
+  const headers = bearer(7);
+  const home = await who(t.port, headers);
+  const homeUp = t.bal.ups.find((u) => (u.slot.id === 0 ? 'A' : 'B') === home);
+  const other = home === 'A' ? 'B' : 'A';
+  // overloaded
+  homeUp.inflight = 10;
+  assert.equal(await who(t.port, headers), other);
+  homeUp.inflight = 0;
+  assert.equal(await who(t.port, headers), home);
+  // stalled (no heartbeat)
+  homeUp.lastBeat = Date.now() - 5000;
+  assert.equal(await who(t.port, headers), other);
+  homeUp.lastBeat = Date.now();
+  // draining
+  homeUp.draining = true;
+  assert.equal(await who(t.port, headers), other);
+  assert.ok(t.bal.snapshot().overflowed >= 2);
+  t.stop();
+});
+
+test('switching affinity off again restores least-busy balancing', async () => {
+  const t = await setup(echo, echo);
+  t.bal.setAffinity('token');
+  t.bal.setAffinity('off');
+  const seen = new Set();
+  for (let i = 0; i < 10; i += 1) seen.add(await who(t.port, bearer(1)));
+  assert.equal(seen.size, 2);
+  t.stop();
+});

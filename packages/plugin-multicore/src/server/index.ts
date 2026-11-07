@@ -324,9 +324,10 @@ export class PluginMulticore extends Plugin {
 
   // ------------------------------------------------------------------ apply
 
-  private async apply(values: { enabled?: boolean; workers?: number }, user: any) {
+  private async apply(values: { enabled?: boolean; workers?: number; affinity?: string }, user: any) {
     const enabled = Boolean(values.enabled);
     const workers = cfg.clampWorkers(values.workers ?? 1);
+    const affinity = cfg.normalizeAffinity(values.affinity);
     const problems: string[] = [];
     if (enabled) {
       const health = await this.redisHealth();
@@ -344,7 +345,7 @@ export class PluginMulticore extends Plugin {
       error.status = 400;
       throw error;
     }
-    const saved = cfg.writeConfig({ enabled, workers, updatedBy: user?.username || user?.nickname || user?.id || null });
+    const saved = cfg.writeConfig({ enabled, workers, affinity, updatedBy: user?.username || user?.nickname || user?.id || null });
     this.app.logger.info(`[multicore] config saved: ${JSON.stringify(saved)}`);
     const ack = await this.askSupervisor('apply');
     return {

@@ -1,0 +1,37 @@
+{
+  "name": "@nb-multicore/plugin-pubsub-adapter-redis",
+  "version": "0.1.1",
+  "displayName": "Multicore: Redis Pub/Sub adapter",
+  "displayName.ru-RU": "Multicore: адаптер Pub/Sub Redis",
+  "displayName.zh-CN": "Multicore：Redis 发布/订阅适配器",
+  "description": "Redis Pub/Sub adapter: events (cache invalidation, schema sync) reach every worker process. Docs: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-pubsub-adapter-redis#readme",
+  "description.ru-RU": "Адаптер Pub/Sub на Redis: события (сброс кэша, синхронизация структуры данных) доходят до всех процессов-воркеров. Документация: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-pubsub-adapter-redis#readme",
+  "description.zh-CN": "Redis 发布/订阅适配器：缓存失效、数据结构同步等事件会送达所有工作进程。 文档：https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-pubsub-adapter-redis#readme",
+  "homepage": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-pubsub-adapter-redis#readme",
+  "homepage.ru-RU": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-pubsub-adapter-redis#readme",
+  "homepage.zh-CN": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-pubsub-adapter-redis#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosaloverdue-dev/nocobase-multicore.git",
+    "directory": "packages/plugin-pubsub-adapter-redis"
+  },
+  "bugs": {
+    "url": "https://github.com/rosaloverdue-dev/nocobase-multicore/issues"
+  },
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x"
+  }
+}

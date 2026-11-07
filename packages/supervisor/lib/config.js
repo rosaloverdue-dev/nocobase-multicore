@@ -7,7 +7,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1 });
+const AFFINITY_MODES = Object.freeze(['off', 'token', 'ip']);
+const DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: 'off' });
+
+/** Worker affinity ("sticky" routing): anything unknown means 'off', which is the default. */
+function normalizeAffinity(value) {
+  return AFFINITY_MODES.includes(value) ? value : 'off';
+}
 
 function storageDir(env = process.env) {
   if (env.MULTICORE_STORAGE) return path.resolve(env.MULTICORE_STORAGE);
@@ -42,6 +48,7 @@ function readConfig(env = process.env) {
     return {
       enabled: Boolean(raw.enabled),
       workers: clampWorkers(raw.workers, env),
+      affinity: normalizeAffinity(raw.affinity),
       updatedAt: raw.updatedAt || null,
       updatedBy: raw.updatedBy || null,
     };
@@ -57,6 +64,7 @@ function writeConfig(config, env = process.env) {
   const body = {
     enabled: Boolean(config.enabled),
     workers: clampWorkers(config.workers, env),
+    affinity: normalizeAffinity(config.affinity),
     updatedAt: new Date().toISOString(),
     updatedBy: config.updatedBy || null,
   };
@@ -66,4 +74,4 @@ function writeConfig(config, env = process.env) {
   return body;
 }
 
-module.exports = { DEFAULT_CONFIG, storageDir, configPath, statusPath, maxWorkers, clampWorkers, readConfig, writeConfig };
+module.exports = { AFFINITY_MODES, normalizeAffinity, DEFAULT_CONFIG, storageDir, configPath, statusPath, maxWorkers, clampWorkers, readConfig, writeConfig };

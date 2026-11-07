@@ -1,0 +1,38 @@
+{
+  "name": "@nb-multicore/plugin-multicore",
+  "version": "0.1.1",
+  "displayName": "Multicore: multi-core switch",
+  "displayName.ru-RU": "Multicore: переключатель многоядерного режима",
+  "displayName.zh-CN": "Multicore：多核模式开关",
+  "description": "Admin page with a multi-core switch and worker counter, live worker table and cluster self-test. Controls the nocobase-multicore supervisor. Docs: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-multicore#readme",
+  "description.ru-RU": "Страница настроек с переключателем многоядерного режима и счётчиком воркеров, таблицей процессов и самопроверкой кластера. Управляет супервизором nocobase-multicore. Документация: https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-multicore#readme",
+  "description.zh-CN": "带有多核模式开关和工作进程数量设置的管理页面，包含进程实时表格和集群自检。用于控制 nocobase-multicore 守护进程。 文档：https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-multicore#readme",
+  "homepage": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-multicore#readme",
+  "homepage.ru-RU": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-multicore#readme",
+  "homepage.zh-CN": "https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/packages/plugin-multicore#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosaloverdue-dev/nocobase-multicore.git",
+    "directory": "packages/plugin-multicore"
+  },
+  "bugs": {
+    "url": "https://github.com/rosaloverdue-dev/nocobase-multicore/issues"
+  },
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x",
+    "@nocobase/client": "2.x"
+  }
+}

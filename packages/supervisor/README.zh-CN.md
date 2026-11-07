@@ -50,4 +50,4 @@ docker logs <容器> 2>&1 | grep '\[multicore\]'           # 守护进程事件
 ```
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/multicore-supervisor` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/multicore-supervisor` · v0.1.1 · AGPL-3.0-only

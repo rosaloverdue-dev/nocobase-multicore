@@ -202,7 +202,20 @@ var RedisWorkerIdAllocator = class {
   terminate(code = 1) {
     process.exit(code);
   }
-  async renew() {
+  renewing;
+  /**
+   * After a long event-loop stall several interval ticks can be queued; they must not run concurrently
+   * (one would reclaim the id, the next would then see "someone owns it" - and that someone is ourselves).
+   */
+  renew() {
+    if (!this.renewing) {
+      this.renewing = this.doRenew().finally(() => {
+        this.renewing = void 0;
+      });
+    }
+    return this.renewing;
+  }
+  async doRenew() {
     if (this.id === null) return;
     const client = await this.getClient();
     const key = this.key(this.id);
@@ -211,6 +224,10 @@ var RedisWorkerIdAllocator = class {
     const reclaimed = await client.set(key, this.token, { NX: true, PX: LEASE_MS });
     if (reclaimed === "OK") {
       this.app.logger.warn(`[multicore] worker id ${this.id} lease had expired; reclaimed the same id`);
+      return;
+    }
+    if (await client.get(key) === this.token) {
+      await client.eval(EXTEND_SCRIPT, { keys: [key], arguments: [this.token, String(LEASE_MS)] });
       return;
     }
     if (process.env.MULTICORE_SUPERVISED === "1") {

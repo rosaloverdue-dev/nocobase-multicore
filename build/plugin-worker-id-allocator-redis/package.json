@@ -1,6 +1,6 @@
 {
   "name": "@nb-multicore/plugin-worker-id-allocator-redis",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "displayName": "Multicore: Redis worker id allocator",
   "displayName.ru-RU": "Multicore: выдача id воркеров через Redis",
   "displayName.zh-CN": "Multicore：Redis 工作进程 ID 分配器",

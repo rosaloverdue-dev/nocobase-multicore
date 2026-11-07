@@ -1,6 +1,6 @@
 {
   "name": "@nb-multicore/plugin-lock-adapter-redis",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "displayName": "Multicore: Redis lock adapter",
   "displayName.ru-RU": "Multicore: адаптер блокировок Redis",
   "displayName.zh-CN": "Multicore：Redis 锁适配器",

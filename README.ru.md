@@ -40,7 +40,7 @@ NocoBase запущен из папки проекта (без Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # вместо `yarn start`
 ```
-Бандл лежит в [`releases/v0.1.0`](releases/v0.1.0) (или соберите: `node scripts/build.mjs`).
+Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.1.0`](releases/v0.1.0), или соберите: `node scripts/build.mjs`).
 
 ## Что внутри
 
@@ -98,7 +98,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. Одна команда — `install.sh` (рекомендуется)
 
-Скачайте бандл из [`releases/v0.1.0`](releases/v0.1.0), распакуйте и запустите:
+Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.1.0`](releases/v0.1.0)), распакуйте и запустите:
 
 ```bash
 ./install.sh --docker <имя-контейнера> [--workers N]       # Docker (Compose: Redis и entrypoint настраиваются сами)

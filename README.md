@@ -3,6 +3,7 @@
 <h1 align="center">nocobase-multicore</h1>
 <p align="center"><b>Run NocoBase 2.x on all CPU cores — switch it on with one click, install it with one command.</b></p>
 <p align="center">
+  [![Views](https://komarev.com/ghpvc/?username=nocobase-multicore&color=007ec6&style=flat-square&label=Views)](https://github.com/rosaloverdue-dev/nocobase-multicore)
   <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
   <img alt="NocoBase" src="https://img.shields.io/badge/NocoBase-2.x-2f54eb">
   <img alt="tested" src="https://img.shields.io/badge/tested-2.2.33-brightgreen">

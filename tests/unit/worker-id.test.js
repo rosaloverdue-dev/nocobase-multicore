@@ -49,6 +49,9 @@ function fakeRedis() {
       data.set(key, value);
       return 'OK';
     },
+    async get(key) {
+      return data.has(key) ? data.get(key) : null;
+    },
     async eval(script, { keys, arguments: args }) {
       return data.get(keys[0]) === args[0] ? 1 : 0;
     },
@@ -120,4 +123,24 @@ test('id stolen by another process: supervised worker exits, unsupervised only l
   await c.alloc.renew();
   assert.equal(c.exited(), null);
   assert.ok(c.log.lines.some(([l, m]) => l === 'error' && /restart this process/.test(m)));
+});
+
+test('queued renew ticks after a stall do not mistake our own reclaimed lease for a conflict', async (t) => {
+  const redis = fakeRedis();
+  const a = await make(redis);
+  if (!a) return t.skip('esbuild is not available');
+  process.env.MULTICORE_SUPERVISED = '1';
+  await a.alloc.getWorkerId();
+  clearInterval(a.alloc.timer);
+  redis.data.clear(); // lease expired during a long stall
+  await Promise.all([a.alloc.renew(), a.alloc.renew(), a.alloc.renew()]);
+  assert.equal(a.exited(), null);
+  // even a racing renew that lost the NX race to our own earlier SET is not a conflict
+  const key = [...redis.data.keys()][0];
+  redis.data.set(key, a.alloc.token);
+  const realEval = redis.eval;
+  let first = true;
+  redis.eval = async (...x) => { if (first) { first = false; return 0; } return realEval(...x); };
+  await a.alloc.renew();
+  assert.equal(a.exited(), null);
 });

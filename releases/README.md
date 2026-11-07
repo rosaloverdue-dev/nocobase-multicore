@@ -1,5 +1,11 @@
-# Готовые сборки
+# Ready-made builds / Готовые сборки / 预构建包
 
-GitHub-релизы из сессии агента создавать нельзя, поэтому собранные архивы лежат здесь: `releases/v<версия>/`. Каждый `.tgz` плагина загружается через «Менеджер плагинов → Добавить → Загрузить» (или распаковывается в `storage/plugins/@rosal-nb/<имя>/`). `nocobase-multicore-supervisor-*.tgz` — лаунчер. Контрольные суммы — в `SHA256SUMS`.
+GitHub Releases cannot be created from the agent session, so the archives live here: `releases/v<version>/`.
+Релизы GitHub из сессии агента создавать нельзя, поэтому архивы лежат здесь. / 无法在代理会话中创建 GitHub Release，因此构建产物放在此处。
 
-Собрать заново: `node scripts/build.mjs` (результат в `build/`). Когда будет возможность, создайте GitHub Release `v0.1.0` и приложите эти файлы.
+* `nocobase-multicore-bundle-<ver>.tgz` — **everything + `install.sh` / `uninstall.sh`** (unpack, run `./install.sh --docker <container>`).
+* `rosal-nb-plugin-*-<ver>.tgz` — each plugin for *Settings → Plugin manager → Add → Upload*.
+* `nocobase-multicore-supervisor-<ver>.tgz` — the launcher (not a plugin).
+* `SHA256SUMS` — checksums.
+
+Rebuild: `node scripts/build.mjs` → `build/`. Docs: [../README.md](../README.md) · [RU](../README.ru.md) · [中文](../README.zh-CN.md).

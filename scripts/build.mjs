@@ -94,30 +94,43 @@ for (const dir of plugins) {
     logLevel: 'warning',
   });
 
-  const hasClient = fs.existsSync(path.join(srcDir, 'src/client/index.tsx'));
+  // NocoBase's web app requests dist/client/index.js of EVERY enabled plugin (a 404 there stops the whole UI with a
+  // requirejs "Script error"), so server-only plugins get a minimal client stub.
+  const clientFile = path.join(srcDir, 'src/client/index.tsx');
+  const hasClient = fs.existsSync(clientFile);
   const externals = ['@nocobase/server'];
-  if (hasClient) {
-    fs.mkdirSync(path.join(out, 'dist', 'client'), { recursive: true });
-    const result = await esbuild.build({
-      entryPoints: [path.join(srcDir, 'src/client/index.tsx')],
-      bundle: true,
-      write: false,
-      platform: 'browser',
-      format: 'cjs',
-      target: 'es2020',
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
-      external: CLIENT_EXTERNALS,
-      minify: true,
-      logLevel: 'warning',
-    });
-    fs.writeFileSync(path.join(out, 'dist/client/index.js'), umd(pkg.name, CLIENT_EXTERNALS, result.outputFiles[0].text));
-    fs.writeFileSync(path.join(out, 'dist/client/index.d.ts'), `export declare class PluginMulticoreClient {}\nexport default PluginMulticoreClient;\n`);
-    fs.writeFileSync(path.join(out, 'client.js'), `module.exports = require('./dist/client/index.js');\n`);
-    fs.writeFileSync(path.join(out, 'client.d.ts'), `export * from './dist/client';\nexport { default } from './dist/client';\n`);
-    externals.push(...CLIENT_EXTERNALS);
-  }
+  fs.mkdirSync(path.join(out, 'dist', 'client'), { recursive: true });
+  const clientCommon = {
+    bundle: true,
+    write: false,
+    platform: 'browser',
+    format: 'cjs',
+    target: 'es2020',
+    jsx: 'transform',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+    external: CLIENT_EXTERNALS,
+    minify: true,
+    logLevel: 'warning',
+  };
+  const result = await esbuild.build(
+    hasClient
+      ? { ...clientCommon, entryPoints: [clientFile] }
+      : {
+          ...clientCommon,
+          stdin: {
+            contents: "import { Plugin } from '@nocobase/client';\nexport class PluginStubClient extends Plugin {}\nexport default PluginStubClient;\n",
+            resolveDir: root,
+            loader: 'ts',
+          },
+        },
+  );
+  const clientDeps = hasClient ? CLIENT_EXTERNALS : ['@nocobase/client'];
+  fs.writeFileSync(path.join(out, 'dist/client/index.js'), umd(pkg.name, clientDeps, result.outputFiles[0].text));
+  fs.writeFileSync(path.join(out, 'dist/client/index.d.ts'), `export declare class PluginMulticoreClient {}\nexport default PluginMulticoreClient;\n`);
+  fs.writeFileSync(path.join(out, 'client.js'), `module.exports = require('./dist/client/index.js');\n`);
+  fs.writeFileSync(path.join(out, 'client.d.ts'), `export * from './dist/client';\nexport { default } from './dist/client';\n`);
+  externals.push(...clientDeps);
 
   fs.writeFileSync(path.join(out, 'dist/externalVersion.js'), externalVersionJs(externals));
   fs.writeFileSync(path.join(out, 'dist/index.js'), `module.exports = require('./server');\n`);
@@ -146,5 +159,23 @@ if (process.env.MINIFY === '1') {
 const supTgz = path.join(buildDir, `nocobase-multicore-supervisor-${supPkg.version}.tgz`);
 execFileSync('tar', ['czf', supTgz, '-C', supOut, '.']);
 summary.push(`${supPkg.name}@${supPkg.version} -> ${path.relative(root, supTgz)}`);
+
+// one-download bundle: every package + the installer scripts (tar xzf, then ./install.sh --docker <container>)
+const bundleName = `nocobase-multicore-bundle-${supPkg.version}`;
+const bundleDir = path.join(buildDir, 'bundle', bundleName);
+fs.mkdirSync(bundleDir, { recursive: true });
+for (const f of fs.readdirSync(buildDir)) if (f.endsWith('.tgz')) fs.copyFileSync(path.join(buildDir, f), path.join(bundleDir, f));
+for (const f of ['install.sh', 'uninstall.sh']) {
+  fs.copyFileSync(path.join(root, 'scripts', f), path.join(bundleDir, f));
+  fs.chmodSync(path.join(bundleDir, f), 0o755);
+}
+fs.writeFileSync(
+  path.join(bundleDir, 'INSTALL.txt'),
+  `nocobase-multicore ${supPkg.version}\n\nDocker:  ./install.sh --docker <container-name>\nLocal:   ./install.sh --local <nocobase-project-dir>\nRemove:  ./uninstall.sh --docker <container-name>\n\nEach rosal-nb-plugin-*.tgz can also be uploaded in NocoBase: Settings -> Plugin manager -> Add -> Upload.\nFull docs (EN/ZH/RU): https://github.com/rosaloverdue-dev/nocobase-multicore\n`,
+);
+const bundleTgz = path.join(buildDir, `${bundleName}.tgz`);
+execFileSync('tar', ['czf', bundleTgz, '-C', path.join(buildDir, 'bundle'), bundleName]);
+fs.rmSync(path.join(buildDir, 'bundle'), { recursive: true, force: true });
+summary.push(`bundle -> ${path.relative(root, bundleTgz)}`);
 
 console.log(summary.join('\n'));

@@ -10,6 +10,7 @@
   <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
 </p>
 <p align="center"><sub>Independent community project, not affiliated with or endorsed by NocoBase.</sub></p>
+<p align="center"><a href="https://boosty.to/lipsept/donate"><img alt="Support the project on Boosty" src="https://img.shields.io/badge/Support%20the%20project-Boosty-F15F2C?style=flat"></a></p>
 
 NocoBase (community edition) is a single Node.js process — **one CPU core**, however big your server is. `nocobase-multicore` starts it as **several worker processes behind one port**, balances requests between them by load, and moves everything that must be shared (events, locks, job queue, record ids, cache) to Redis. The NocoBase core is **not patched**: it is five ordinary plugins plus a small launcher, with an admin page under *Settings → Multi-core mode*.
 
@@ -451,6 +452,12 @@ Ids already stored in your database are untouched; the plugin only influences ne
 curl -s -X POST $BASE/api/multicore:selftest -H "Authorization: Bearer $TOKEN"   # checks.workerIds.ok must be true
 docker exec <redis> redis-cli --scan --pattern '*:wid:*'                           # one key per running worker
 ```
+
+## Support the project
+
+nocobase-multicore is free and open source. If it saves you time or money, you can support its development with a donation. It is voluntary and gives no extra rights or priority support.
+
+<p align="center"><a href="https://boosty.to/lipsept/donate"><img alt="Donate on Boosty" src="https://img.shields.io/badge/Donate-on%20Boosty-F15F2C?style=for-the-badge"></a></p>
 
 ## More
 

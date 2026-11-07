@@ -1,7 +1,7 @@
-be0e65cf4e219ac975bb44b592ec1cb800c7c3e2bbca5b226a1bb5d3af97d2cc  nb-multicore-plugin-lock-adapter-redis-0.1.0.tgz
-802beaee72164cc70d11f8badbe6851820361bc4b1bb13890beea3b98d3c8bb4  nb-multicore-plugin-multicore-0.1.0.tgz
-b720517a952122351ace6867678e16d4b85d25bb3d7fcc1a0b5d9d80990dd11c  nb-multicore-plugin-pubsub-adapter-redis-0.1.0.tgz
-11d4ecb9774e0d306c329bd66fecfb9f5efd3bc6073c8e57fcdfacf527957b5b  nb-multicore-plugin-queue-adapter-redis-0.1.0.tgz
-1caea63244eedc223eff5674e8819f4211552c3f737ad642e06c0de4e89988e8  nb-multicore-plugin-worker-id-allocator-redis-0.1.0.tgz
-4f8ce0302dec63a109926a8f43d316ddfffb0a8dcaa31fa1791165f3f8367599  nocobase-multicore-bundle-0.1.0.tgz
-1e43a1884bf6b3e5b66dba0038f1eb536f5de3bca04f51274f4a10632dc2380b  nocobase-multicore-supervisor-0.1.0.tgz
+8c8f71839a3441a7c4d852228bf90d5d6977218c864809b92f56f1d82883acea  nb-multicore-plugin-lock-adapter-redis-0.1.0.tgz
+d6f8bcc90e90cfa54d1efc72bf6f82627e3581a788e8eb9ec19b07347fdb66c4  nb-multicore-plugin-multicore-0.1.0.tgz
+b0171731a70bcd817919972711aa0f0fba5992901806ee54cb30714c82fe5934  nb-multicore-plugin-pubsub-adapter-redis-0.1.0.tgz
+4aaef6944f1722a44dc5848d03764216c75cab2bf45d4d7153850d6ee7c26370  nb-multicore-plugin-queue-adapter-redis-0.1.0.tgz
+6627407cd5e98f339d01f96a70f0f78193c700c53cdaefa71faa5e606c65489b  nb-multicore-plugin-worker-id-allocator-redis-0.1.0.tgz
+bd2414b023583abce1eabd8b48bc58d4dc8fe5ea30224315038be67901e81dc0  nocobase-multicore-bundle-0.1.0.tgz
+2faefeea4b9f879cc6adc3bfe75a2e045d86ac99983fcf648e3f2ff077561545  nocobase-multicore-supervisor-0.1.0.tgz

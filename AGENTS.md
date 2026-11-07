@@ -93,6 +93,7 @@ Not verified / open: workflow schedule triggers across several workers (duplicat
 * Anything that changes the worker env must be reflected in `Supervisor.workerEnv()` and documented in `docs/OPERATIONS.md`.
 * A worker must exit on SIGTERM: NocoBase stops the app but leaves handles open, so `worker-entry.js` installs a timer that calls `process.exit(0)` after `MULTICORE_EXIT_GRACE_MS` (default 10 s). Do not remove it, or every rolling replace waits for the SIGKILL.
 * Non-zero worker slots (and replacement workers) get a unique `SOCKET_PATH` because the NocoBase gateway IPC socket is owned by one process.
+* **Every plugin needs `dist/client/index.js`**, even server-only ones: the NocoBase web app loads the client bundle of every enabled plugin through requirejs, and a 404 stops the whole UI with `Script error for "@rosal-nb/..."`. `scripts/build.mjs` generates a minimal stub for the plugins without `src/client`.
 * Keep user-facing text bilingual (ru/en) in the client bundle; docs for humans are in Russian, this file and code comments in English.
 
 ## 8. What to do next (backlog, most valuable first)

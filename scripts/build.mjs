@@ -94,30 +94,43 @@ for (const dir of plugins) {
     logLevel: 'warning',
   });
 
-  const hasClient = fs.existsSync(path.join(srcDir, 'src/client/index.tsx'));
+  // NocoBase's web app requests dist/client/index.js of EVERY enabled plugin (a 404 there stops the whole UI with a
+  // requirejs "Script error"), so server-only plugins get a minimal client stub.
+  const clientFile = path.join(srcDir, 'src/client/index.tsx');
+  const hasClient = fs.existsSync(clientFile);
   const externals = ['@nocobase/server'];
-  if (hasClient) {
-    fs.mkdirSync(path.join(out, 'dist', 'client'), { recursive: true });
-    const result = await esbuild.build({
-      entryPoints: [path.join(srcDir, 'src/client/index.tsx')],
-      bundle: true,
-      write: false,
-      platform: 'browser',
-      format: 'cjs',
-      target: 'es2020',
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
-      external: CLIENT_EXTERNALS,
-      minify: true,
-      logLevel: 'warning',
-    });
-    fs.writeFileSync(path.join(out, 'dist/client/index.js'), umd(pkg.name, CLIENT_EXTERNALS, result.outputFiles[0].text));
-    fs.writeFileSync(path.join(out, 'dist/client/index.d.ts'), `export declare class PluginMulticoreClient {}\nexport default PluginMulticoreClient;\n`);
-    fs.writeFileSync(path.join(out, 'client.js'), `module.exports = require('./dist/client/index.js');\n`);
-    fs.writeFileSync(path.join(out, 'client.d.ts'), `export * from './dist/client';\nexport { default } from './dist/client';\n`);
-    externals.push(...CLIENT_EXTERNALS);
-  }
+  fs.mkdirSync(path.join(out, 'dist', 'client'), { recursive: true });
+  const clientCommon = {
+    bundle: true,
+    write: false,
+    platform: 'browser',
+    format: 'cjs',
+    target: 'es2020',
+    jsx: 'transform',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+    external: CLIENT_EXTERNALS,
+    minify: true,
+    logLevel: 'warning',
+  };
+  const result = await esbuild.build(
+    hasClient
+      ? { ...clientCommon, entryPoints: [clientFile] }
+      : {
+          ...clientCommon,
+          stdin: {
+            contents: "import { Plugin } from '@nocobase/client';\nexport class PluginStubClient extends Plugin {}\nexport default PluginStubClient;\n",
+            resolveDir: root,
+            loader: 'ts',
+          },
+        },
+  );
+  const clientDeps = hasClient ? CLIENT_EXTERNALS : ['@nocobase/client'];
+  fs.writeFileSync(path.join(out, 'dist/client/index.js'), umd(pkg.name, clientDeps, result.outputFiles[0].text));
+  fs.writeFileSync(path.join(out, 'dist/client/index.d.ts'), `export declare class PluginMulticoreClient {}\nexport default PluginMulticoreClient;\n`);
+  fs.writeFileSync(path.join(out, 'client.js'), `module.exports = require('./dist/client/index.js');\n`);
+  fs.writeFileSync(path.join(out, 'client.d.ts'), `export * from './dist/client';\nexport { default } from './dist/client';\n`);
+  externals.push(...clientDeps);
 
   fs.writeFileSync(path.join(out, 'dist/externalVersion.js'), externalVersionJs(externals));
   fs.writeFileSync(path.join(out, 'dist/index.js'), `module.exports = require('./server');\n`);

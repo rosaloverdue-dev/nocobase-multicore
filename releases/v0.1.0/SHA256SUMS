@@ -1,6 +1,6 @@
-606668ec769332ad0e751e0d84363911878c41b8bd689395b3a1ec3bc896afc9  nocobase-multicore-supervisor-0.1.0.tgz
-2434def61cdcf01024e8b35783d8ad27521c11e77f5550574a01d6bacd9d7281  rosal-nb-plugin-lock-adapter-redis-0.1.0.tgz
-24bcd49654e5162d90070cdba6e3ea1a368aa0fe002476211a3c474a640d33b6  rosal-nb-plugin-multicore-0.1.0.tgz
-13fa6e0a6ec9e45e1deb1baeaaf06a9715a1f6f3685b84b716a26e825c801961  rosal-nb-plugin-pubsub-adapter-redis-0.1.0.tgz
-9a902f4789fd21b1555205e4fd08aed10afbf9cf2d6855c9b1a9c81dabe6b549  rosal-nb-plugin-queue-adapter-redis-0.1.0.tgz
-62d4265b0d855e76905eacfa0dfa7d5723ee0a5bb83328d43abbe6cbff00fcfd  rosal-nb-plugin-worker-id-allocator-redis-0.1.0.tgz
+f8089ebdc5534a0b33e3b4fd72c339de3f0cbdebd9e47920bdcf834a0a3d7ed8  nocobase-multicore-supervisor-0.1.0.tgz
+a6ad46fe3f31fc4534db1995126ad95bb8541a03cf4acc38d8cfca7e71dfa404  rosal-nb-plugin-lock-adapter-redis-0.1.0.tgz
+4900c36a22d10fac002fab98f4c65630b3fc858392889ae7abc74ec5524a3f69  rosal-nb-plugin-multicore-0.1.0.tgz
+dd0a5757c54fd01318ee6653387de7ccb4bbe13bf6f95000f8489be896d2446d  rosal-nb-plugin-pubsub-adapter-redis-0.1.0.tgz
+84770aac84d2b918a3cff484b08851e8b52fa44c3091f2b6ea636fd1d0919a06  rosal-nb-plugin-queue-adapter-redis-0.1.0.tgz
+bafb926fb2c83472c3b7091e0c7f449dd4853dffd6cde75065234719c525e9cb  rosal-nb-plugin-worker-id-allocator-redis-0.1.0.tgz

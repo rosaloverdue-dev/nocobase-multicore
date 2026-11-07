@@ -346,7 +346,10 @@ function run(options) {
     throw new Error('nocobase-multicore must run as the cluster primary');
   }
   const supervisor = new Supervisor(options);
-  cluster.on('listening', (worker) => supervisor.onListening(worker));
+  // The IPC socket of the NocoBase gateway also emits 'listening' (unix socket: port -1); only the HTTP port counts.
+  cluster.on('listening', (worker, address) => {
+    if (address && address.port > 0) supervisor.onListening(worker);
+  });
   supervisor.start().catch((error) => {
     console.error('[multicore] fatal:', error);
     process.exit(1);

@@ -1,0 +1,26 @@
+nocobase-multicore
+Copyright (C) 2026 nocobase-multicore contributors
+
+This project is free software. It is licensed under the GNU Affero General
+Public License, version 3 only (SPDX: AGPL-3.0-only). The full text is in the
+file LICENSE.
+
+Relationship to NocoBase
+------------------------
+* This is an independent community project. It is not affiliated with,
+  sponsored by or endorsed by NocoBase or its owner (NOCOBASE PTE. LTD.).
+  "NocoBase" is a name and trademark of its owner. It is used in this project
+  only to say what the software works with. No rights to any NocoBase
+  trademark are granted by this project.
+* This repository contains no NocoBase source code. The plugins and the
+  supervisor load the NocoBase packages (for example @nocobase/server) that
+  you have installed yourself, at run time.
+* NocoBase is licensed separately, under the NocoBase License Agreement
+  (Apache-2.0 plus additional terms):
+  https://github.com/nocobase/nocobase/blob/main/LICENSE.txt
+  You are responsible for complying with those terms for your own NocoBase
+  installation, including its terms on branding and on offering NocoBase-based
+  platforms to the public.
+* This project does not remove or change any NocoBase brand, name, link,
+  version number or license notice in the NocoBase interface. It only adds
+  one settings page ("Multi-core mode").

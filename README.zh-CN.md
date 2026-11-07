@@ -40,7 +40,7 @@ NocoBase 从项目目录运行（不用 Docker）？
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # 代替 `yarn start`
 ```
-安装包位于 [`releases/v0.1.0`](releases/v0.1.0)（或自行构建：`node scripts/build.mjs`）。
+请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.1.0`](releases/v0.1.0) 中，或自行构建：`node scripts/build.mjs`）。
 
 ## 包含的内容
 
@@ -98,7 +98,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. 一条命令 — `install.sh`（推荐）
 
-从 [`releases/v0.1.0`](releases/v0.1.0) 下载安装包，解压后运行：
+从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.1.0`](releases/v0.1.0)）下载安装包，解压后运行：
 
 ```bash
 ./install.sh --docker <容器名> [--workers N]               # Docker（Compose：自动配置 Redis 和入口）

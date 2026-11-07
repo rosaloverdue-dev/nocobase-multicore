@@ -43,7 +43,7 @@ NocoBase runs from a project folder (no Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # instead of `yarn start`
 ```
-The bundle is in [`releases/v0.1.0`](releases/v0.1.0) (or build it: `node scripts/build.mjs`).
+Download `nocobase-multicore-bundle-<version>.tgz` from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (the same files are in [`releases/v0.1.0`](releases/v0.1.0), or build them: `node scripts/build.mjs`).
 
 ## What is inside
 
@@ -101,7 +101,7 @@ Live numbers (requests in flight / served per worker) are in the admin page and 
 
 ### 1. One command — `install.sh` (recommended)
 
-Download the bundle from [`releases/v0.1.0`](releases/v0.1.0), unpack, run:
+Download the bundle from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (or from [`releases/v0.1.0`](releases/v0.1.0)), unpack, run:
 
 ```bash
 ./install.sh --docker <container-name> [--workers N]      # Docker (Compose: Redis + entrypoint are configured for you)

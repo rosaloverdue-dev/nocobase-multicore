@@ -18,11 +18,14 @@ const { readConfig, statusPath, maxWorkers } = require('./config');
 
 const CMD = 'multicore';
 const DRAIN_GRACE_MS = 30_000;
+const ROUTING_DELAY_MS = 1_500;
 const LISTEN_TIMEOUT_MS = 240_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+const WORKER_ENTRY = path.join(__dirname, 'worker-entry.js');
 
 function resolveEntry(env) {
   if (env.MULTICORE_APP_ENTRY) return env.MULTICORE_APP_ENTRY;
@@ -52,7 +55,7 @@ class Supervisor {
 
   // ---------- public API ----------
   async start() {
-    cluster.setupPrimary({ exec: this.entry, args: ['start'], silent: false });
+    cluster.setupPrimary({ exec: WORKER_ENTRY, args: ['start'], silent: false });
     cluster.on('message', (worker, message) => this.onMessage(worker, message));
     cluster.on('exit', (worker, code, signal) => this.onExit(worker, code, signal));
     process.on('SIGTERM', () => this.shutdown('SIGTERM'));
@@ -97,18 +100,18 @@ class Supervisor {
     const { mode, count } = this.desired();
     this.log(`reconcile (${reason}): desired mode=${mode} workers=${count}`);
 
-    // 1) mode change => rolling replacement of every live slot (env differs, e.g. cache store).
-    const stale = [...this.slots.values()].filter((s) => !s.draining && s.mode !== mode).sort((a, b) => a.id - b.id);
-    for (const slot of stale) {
-      await this.replaceSlot(slot, mode);
-    }
-
-    // 2) scale down: drain the highest slots.
     const live = () => [...this.slots.values()].filter((s) => !s.draining).sort((a, b) => a.id - b.id);
+    // 1) scale down first: drain the highest slots (never start a worker only to drain it right after a mode change).
     while (live().length > count) {
       const victim = live().pop();
       this.log(`scale down: draining slot ${victim.id}`);
       await this.drain(victim);
+    }
+
+    // 2) mode change => rolling replacement of every live slot (env differs, e.g. cache store).
+    const stale = [...this.slots.values()].filter((s) => !s.draining && s.mode !== mode).sort((a, b) => a.id - b.id);
+    for (const slot of stale) {
+      await this.replaceSlot(slot, mode);
     }
 
     // 3) scale up: sequential starts (NocoBase boot is heavy; avoids a thundering herd on the database).
@@ -149,7 +152,7 @@ class Supervisor {
   }
 
   async spawn(id, mode, { quickstart = false, replacing = false } = {}) {
-    cluster.setupPrimary({ exec: this.entry, args: quickstart ? ['start', '--quickstart'] : ['start'], silent: false });
+    cluster.setupPrimary({ exec: WORKER_ENTRY, args: quickstart ? ['start', '--quickstart'] : ['start'], silent: false });
     const slot = { id, mode, state: 'starting', restarts: 0, startedAt: Date.now(), draining: false, worker: null, backoff: 1000 };
     this.slots.set(id, slot);
     this.fork(slot, { replacing });
@@ -220,11 +223,20 @@ class Supervisor {
         clearTimeout(timer);
         resolve();
       });
+      // Stop the primary from routing NEW connections to this worker first: while NocoBase is shutting down it
+      // answers in-flight-at-the-wrong-moment requests with 500 ("connection manager was closed").
       try {
-        worker.process.kill('SIGTERM');
+        worker.disconnect();
       } catch (e) {
-        resolve();
+        // already disconnected
       }
+      setTimeout(() => {
+        try {
+          worker.process.kill('SIGTERM');
+        } catch (e) {
+          resolve();
+        }
+      }, ROUTING_DELAY_MS);
     });
     if (this.slots.get(slot.id) === slot) this.slots.delete(slot.id);
   }
@@ -264,7 +276,7 @@ class Supervisor {
     slot.backoff = Math.min(slot.backoff * 2, 30_000);
     setTimeout(() => {
       if (this.stopping || slot.draining || this.slots.get(slot.id) !== slot) return;
-      cluster.setupPrimary({ exec: this.entry, args: ['start'], silent: false });
+      cluster.setupPrimary({ exec: WORKER_ENTRY, args: ['start'], silent: false });
       this.fork(slot, { replacing: false });
     }, delay).unref();
   }
@@ -334,7 +346,10 @@ function run(options) {
     throw new Error('nocobase-multicore must run as the cluster primary');
   }
   const supervisor = new Supervisor(options);
-  cluster.on('listening', (worker) => supervisor.onListening(worker));
+  // The IPC socket of the NocoBase gateway also emits 'listening' (unix socket: port -1); only the HTTP port counts.
+  cluster.on('listening', (worker, address) => {
+    if (address && address.port > 0) supervisor.onListening(worker);
+  });
   supervisor.start().catch((error) => {
     console.error('[multicore] fatal:', error);
     process.exit(1);

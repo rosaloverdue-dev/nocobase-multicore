@@ -3,6 +3,7 @@
 <h1 align="center">nocobase-multicore</h1>
 <p align="center"><b>NocoBase 2.x на всех ядрах процессора: включается одним переключателем, ставится одной командой.</b></p>
 <p align="center">
+  <a href="https://github.com/rosaloverdue-dev/nocobase-multicore"><img alt="Views" src="https://komarev.com/ghpvc/?username=nocobase-multicore&color=007ec6&style=flat-square&label=Views"></a>
   <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
   <img alt="NocoBase" src="https://img.shields.io/badge/NocoBase-2.x-2f54eb">
   <img alt="tested" src="https://img.shields.io/badge/tested-2.2.33-brightgreen">

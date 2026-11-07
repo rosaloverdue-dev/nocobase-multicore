@@ -39,7 +39,7 @@ Each plugin activates only when `MULTICORE_MODE=cluster` and `REDIS_URL` is set;
 | pubsub | `app.pubSubManager.setAdapter` | Two dedicated connections; channel `${prefix}:ps:${channel}`; connects on `afterStart`. |
 | lock | `app.lockManager.registerAdapter('redis')` | `SET NX PX`, Lua compare-and-delete/extend, timer renewal, `LockAcquireError` like the stock adapter. |
 | queue | `app.eventQueue.setAdapter` | Redis Streams, group `nb`, `XREADGROUP` on its own connection, `XACK`+`XDEL`, retry by republishing with `retried+1`, `XAUTOCLAIM` of abandoned messages, `MAXLEN ~100000`. |
-| worker-id | `app.workerIdAllocator.setAdapter` | 32 leases `${prefix}:wid:${id}` (TTL 30 s, renewed every 10 s); singleton with `rebind(app)` that survives app reloads. |
+| worker-id | `app.workerIdAllocator.setAdapter` | 32 leases `${prefix}:wid:${id}` (TTL 60 s, renewed every 10 s; a lost lease is reclaimed, or a supervised worker exits and is respawned); singleton with `rebind(app)` that survives app reloads. |
 | cache | `CACHE_DEFAULT_STORE=redis`, `CACHE_REDIS_URL` | Set by the supervisor for cluster workers. |
 
 Key prefix: `${MULTICORE_REDIS_PREFIX||'mcore'}:${MULTICORE_NAMESPACE||DB_DATABASE||'nocobase'}`.

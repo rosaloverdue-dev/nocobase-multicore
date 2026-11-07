@@ -61,8 +61,15 @@ Plugin folders live in `storage/plugins/@nb-multicore/<name>/`. Or upload the `.
 
 ## Control
 * UI: Settings → Multi-core mode.
-* API (role with `pm.multicore`; root has it): `POST /api/multicore:apply {"enabled":true,"workers":2}`, `GET /api/multicore:status`, `POST /api/multicore:selftest`, `GET /api/multicore:whoami`.
+* API (role with `pm.multicore`; root has it): `POST /api/multicore:apply {"enabled":true,"workers":2,"affinity":"off"}` (`affinity`: `off` (default) | `token` | `ip`), `GET /api/multicore:status`, `POST /api/multicore:selftest`, `GET /api/multicore:whoami`.
 * Files: `storage/multicore/config.json` (settings), `storage/multicore/status.json` (supervisor state incl. balancer stats). The supervisor re-reads the config on a worker message, on `SIGHUP`, and every 10 s.
+
+## Worker affinity (sticky routing)
+Off by default. *Settings → Multi-core mode → Worker affinity* (or `"affinity"` in `config.json` / `multicore:apply`) makes the balancer send the same user to the same worker: `token` = by the `Authorization: Bearer` token (or `?token=` of a WebSocket URL; requests without a token are balanced normally), `ip` = by `X-Forwarded-For` / the client address. Applied instantly, no worker restart. The preferred worker is skipped when it has no heartbeat (stalled), is draining, or has more than 4 requests in flight more than the least busy worker. Counters `sticky` / `overflowed` are in `status.json`. Why you may need it: [KNOWN-ISSUES](KNOWN-ISSUES.md#plugins-that-keep-state-in-process-memory-users-kicked-out-401-reload-loop).
+
+## Restart and update NocoBase
+* Restart: `docker compose restart app` from the project folder. `install.sh` puts `COMPOSE_FILE=<compose file>:<docker-compose.multicore.yml>` into the project's `.env` so plain `docker compose` commands keep using the override; without it use `docker compose -f docker-compose.yml -f docker-compose.multicore.yml up -d` (otherwise NocoBase silently starts as one process, without Redis).
+* Update NocoBase (verified 2.2.33 → 2.2.34 on Docker Compose): back up DB and `storage/`; change the image tag in `docker-compose.yml`; `docker compose pull && docker compose up -d`; wait 1–3 minutes (the entrypoint runs the NocoBase upgrade, then the supervisor starts the workers). No need to re-run `install.sh`. Roll back with the previous tag and the backup.
 
 ## Environment variables
 | Variable | Default | Meaning |

@@ -88,6 +88,8 @@ The built-in balancer fixes that:
 
 Live numbers (requests in flight / served per worker) are in the admin page and in `storage/multicore/status.json`. `MULTICORE_BALANCER=off` returns to the plain shared-port mode.
 
+**Worker affinity (optional, off by default).** Normally two requests of the same user may be served by different workers. That is fine for everything NocoBase keeps in the database or Redis, but some third-party plugins keep state in the memory of one process (see [known issues](docs/KNOWN-ISSUES.md#plugins-that-keep-state-in-process-memory-users-kicked-out-401-reload-loop)). For them switch on *Settings → Multi-core mode → Worker affinity*: **by login token** (recommended) or **by client IP**. The same user then keeps going to the same worker; if that worker is stalled or clearly busier than the others (more than 4 requests ahead), the request goes to the least busy one instead, so nobody is pinned to a frozen process. It is applied instantly, without restarting workers, and can be turned off in the same place. Cost: the load is spread less evenly. Totals such as "users online" stay wrong in that case — each worker counts only its own users.
+
 > A worker that is executing one huge synchronous request (for example a 5000-row list with many appended relations) cannot answer anything else until it finishes — JavaScript is single-threaded. The balancer routes everybody else around it, but the real cure is smaller pages / fewer appended relations in heavy blocks.
 
 ## Requirements
@@ -169,6 +171,7 @@ services:
 *Settings → Multi-core mode* (English, Russian and Simplified Chinese; other UI languages fall back to English):
 
 * **switch** and **number of workers** with the number of server CPU cores shown next to it; *Apply* does a rolling replace;
+* **worker affinity** (off / by login token / by client IP), applied instantly;
 * **live process table**: slot, PID, state, uptime, CPU %, memory, event-loop lag, **requests in flight / served**, instance id, host;
 * **adapter status** (pub/sub, locks, queue, worker ids, cache) and Redis latency/version;
 * **cluster self-test**: pub/sub reaches every worker, locks exclude other processes, 20 queue jobs run exactly once, worker ids are distinct.
@@ -213,6 +216,20 @@ Results of the runs done so far: [docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 **If I remove the plugins, will the server keep working?** Yes, no manual repair is needed. Disabling/removing any of the five plugins first writes `enabled:false` into the config (the *safeguard*), and the supervisor returns to **one ordinary process**. The plugins create no database tables and change no data; the leftover Redis keys are harmless and expire by themselves. Tested: the site answered 200 during the whole removal, the container restarted normally, persisted workflows kept firing. Use `./uninstall.sh --docker <container>` for a clean removal (add `--purge` to also delete the supervisor folder — do it only after you returned the container to the stock entrypoint).
 
 **Recommended for production:** make a database backup; try on a staging copy first; switch on in a quiet hour; start with 2–3 workers; keep Redis persistent/monitored.
+
+## Restart and update
+
+**Restart the app** (Docker Compose, from the project folder): `docker compose restart app` — the supervisor starts again and brings the workers back (a minute or so). Without downtime you can instead change the number of workers in the admin page (rolling replace). A restart requested by NocoBase itself (for example after enabling a plugin) just makes a worker exit; the supervisor starts it again. Bare-metal: restart the process that runs `nocobase-multicore.js`.
+
+> `install.sh` writes `COMPOSE_FILE=…docker-compose.yml:…docker-compose.multicore.yml` into the project's `.env`, so a plain `docker compose up -d` / `restart` keeps the supervisor and Redis. If you removed that line, or run compose from another folder, use `docker compose -f docker-compose.yml -f docker-compose.multicore.yml up -d` — otherwise compose ignores the override and NocoBase silently starts as a single process.
+
+**Update NocoBase itself** (verified: 2.2.33 → 2.2.34, Docker Compose):
+1. Back up the database and `storage/`.
+2. In `docker-compose.yml` change the image tag, e.g. `nocobase/nocobase:2.2.33` → `nocobase/nocobase:2.2.34`.
+3. `docker compose pull && docker compose up -d`.
+4. Wait 1–3 minutes: the entrypoint runs NocoBase's own upgrade, the supervisor starts the workers again. Check `docker logs <container> | grep '\[multicore\]'` and *Settings → Multi-core mode*.
+
+The multi-core files live in `storage/`, so they survive a new image; you do **not** need to run `install.sh` again. If a new image changes its start script, `entrypoint.sh` stops with a clear message — put the old tag back and open an issue. Rollback: previous tag + restore the backup. NocoBase versions other than 2.2.x are untested. Without Docker: stop the supervisor, update NocoBase as described in its documentation (`yarn nocobase upgrade`), start the supervisor again.
 
 ## Troubleshooting
 
@@ -430,8 +447,8 @@ millisecond — the database answers `id must be unique` and the record (for ins
 
 **Functionality**
 
-* Every process **leases** a free id in 0–31 from Redis (`SET NX PX 30 s`), renews it every 10 s and keeps it for as long as the process lives.
-* A crashed process frees its id automatically after 30 s. At most 32 processes can run at once (the supervisor allows at most 32 workers by default).
+* Every process **leases** a free id in 0–31 from Redis (`SET NX PX 60 s`), renews it every 10 s and keeps it for as long as the process lives.
+* A crashed process frees its id automatically after 60 s. A lost lease is re-acquired (same id) or, if another process took the id, the supervised worker exits and is respawned with a new id. At most 32 processes can run at once (the supervisor allows at most 32 workers by default).
 * The manager page shows the id of every worker, and the self-test fails if two workers share an id.
 
 **How it is built**

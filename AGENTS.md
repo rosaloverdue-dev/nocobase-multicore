@@ -37,7 +37,7 @@ nocobase-multicore (supervisor, node:cluster primary, no NocoBase code)
           │ all of them talk through Redis: pub/sub, locks, queue, worker ids, cache
 ```
 
-* Config: `storage/multicore/config.json` → `{ "enabled": bool, "workers": n, "updatedAt", "updatedBy" }`. Written atomically by the manager plugin; re-read by the supervisor on IPC message, on `SIGHUP`, and by a 10 s poll.
+* Config: `storage/multicore/config.json` → `{ "enabled": bool, "workers": n, "affinity": "off|token|ip", "updatedAt", "updatedBy" }`. Written atomically by the manager plugin; re-read by the supervisor on IPC message, on `SIGHUP`, and by a 10 s poll.
 * Worker env set by the supervisor: `MULTICORE_SUPERVISED=1`, `MULTICORE_MODE=cluster|single`, `MULTICORE_SLOT=<n>`, and in cluster mode `REDIS_URL`, `CACHE_DEFAULT_STORE=redis`, `CACHE_REDIS_URL` (unless already set).
 * **The adapter plugins activate only when `MULTICORE_MODE === 'cluster'` and `REDIS_URL` is set** (`skipReason()` in `packages/shared/src/env.ts`). Otherwise NocoBase behaves exactly as stock. This is what makes the switch safe: turning the mode off falls back to a single process with stock in-memory adapters.
 * Mode change = **rolling replace**: start a new worker (temporary slot id 1000+n), wait for `listening`, drain the old one (SIGTERM, 30 s grace then SIGKILL), repeat. Scale-down drains the highest slots first. A crashed worker is respawned with exponential backoff (1 s → 30 s).
@@ -66,7 +66,7 @@ A throw-away stack: Postgres 16 + Redis 7 + `nocobase/nocobase:2.2.33`, with the
 1. Start stock (single process), `pm add` + `pm enable` the five plugins:
    `yarn nocobase pm add @nb-multicore/<name>` then `yarn nocobase pm enable @nb-multicore/<name> ...`.
 2. Restart with `docker-compose.multicore.yml` (entrypoint replaced; supervisor runs).
-3. Sign in (`POST /api/auth:signIn`) and call `POST /api/multicore:apply {"enabled":true,"workers":2}`.
+3. Sign in (`POST /api/auth:signIn`) and call `POST /api/multicore:apply {"enabled":true,"workers":2,"affinity":"off"}`.
 4. `POST /api/multicore:selftest` must return `ok:true` (pub/sub reaches every worker, lock excludes, 20 queue jobs processed once each).
 5. `node tests/consistency.js` (cross-worker metadata/write consistency), `node tests/bench.js` (throughput), `node tests/workflow.js` (workflow triggers; env `BASE_URL NB_USER NB_PASSWORD`).
 
@@ -109,7 +109,7 @@ Not verified / open: file uploads with local storage across workers (needs share
 1. ~~Schedule triggers~~ verified (fire once per tick). Remaining: soak test with workflows, sync workflows under extreme concurrency (stock limit).
 2. Local-storage file uploads: document/verify a shared volume, or add a storage check to the self-test.
 3. Redis outage handling (reconnect, degrade, health banner) and `maxmemory` guidance.
-4. Sticky routing for WebSocket / SSE if the stock gateway needs it.
+4. ~~Sticky routing~~ done in 0.1.1 as opt-in worker affinity (`off|token|ip`, default off, hot-applied by `Balancer.setAffinity`). Remaining: WebSocket/SSE stickiness is only by `token` query parameter.
 5. Real unit tests for adapters against a Redis container; a script that automates the whole stand (`tests/run-stand.sh`).
 6. Support other NocoBase minor versions: CI matrix when CI becomes available.
 7. Publish the plugins to an npm registry (currently distributed as `.tgz` GitHub release assets).

@@ -12,8 +12,8 @@ millisecond — the database answers `id must be unique` and the record (for ins
 
 **Functionality**
 
-* Every process **leases** a free id in 0–31 from Redis (`SET NX PX 30 s`), renews it every 10 s and keeps it for as long as the process lives.
-* A crashed process frees its id automatically after 30 s. At most 32 processes can run at once (the supervisor allows at most 32 workers by default).
+* Every process **leases** a free id in 0–31 from Redis (`SET NX PX 60 s`), renews it every 10 s and keeps it for as long as the process lives.
+* A crashed process frees its id automatically after 60 s. A lost lease is re-acquired (same id) or, if another process took the id, the supervised worker exits and is respawned with a new id. At most 32 processes can run at once (the supervisor allows at most 32 workers by default).
 * The manager page shows the id of every worker, and the self-test fails if two workers share an id.
 
 **How it is built**

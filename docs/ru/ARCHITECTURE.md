@@ -36,7 +36,7 @@
 | pubsub | `app.pubSubManager.setAdapter` | Отдельные pub/sub-подключения; канал `${prefix}:ps:${channel}`; подключение на `afterStart`. |
 | lock | `app.lockManager.registerAdapter('redis')` + `options.defaultAdapter` | `SET NX PX`, Lua для сравнения-и-удаления/продления, продление по таймеру, `LockAcquireError` как у штатного адаптера. |
 | queue | `app.eventQueue.setAdapter` | Redis Streams, группа `nb`, `XREADGROUP` на отдельном подключении, `XACK`+`XDEL`, повтор публикацией с `retried+1`, `XAUTOCLAIM` брошенных сообщений через `timeout*2+5с`, `MAXLEN ~100000`. |
-| worker-id | `app.workerIdAllocator.setAdapter` | 32 аренды `${prefix}:wid:${id}` (TTL 30 с, продление раз в 10 с); синглтон `globalThis.__mcoreWorkerId` с `rebind(app)` — переживает перезагрузку приложения. |
+| worker-id | `app.workerIdAllocator.setAdapter` | 32 аренды `${prefix}:wid:${id}` (TTL 60 с, продление раз в 10 с; потерянная аренда возвращается, иначе воркер под супервизором завершается и перезапускается); синглтон `globalThis.__mcoreWorkerId` с `rebind(app)` — переживает перезагрузку приложения. |
 | кэш | переменные `CACHE_DEFAULT_STORE=redis`, `CACHE_REDIS_URL` | Выставляет лаунчер для воркеров кластера. |
 
 Префикс ключей: `${MULTICORE_REDIS_PREFIX||'mcore'}:${MULTICORE_NAMESPACE||DB_DATABASE||'nocobase'}`.

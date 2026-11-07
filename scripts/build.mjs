@@ -88,9 +88,9 @@ for (const dir of plugins) {
     platform: 'node',
     format: 'cjs',
     target: 'node20',
-    keepNames: true,
     external: SERVER_EXTERNAL,
-    banner: { js: header },
+    minify: process.env.MINIFY === '1',
+    banner: { js: process.env.MINIFY === '1' ? '' : header },
     logLevel: 'warning',
   });
 
@@ -137,6 +137,12 @@ const sup = path.join(packagesDir, 'supervisor');
 const supPkg = JSON.parse(fs.readFileSync(path.join(sup, 'package.json'), 'utf8'));
 const supOut = path.join(buildDir, 'supervisor');
 fs.cpSync(sup, supOut, { recursive: true });
+if (process.env.MINIFY === '1') {
+  for (const rel of ['lib/config.js', 'lib/supervisor.js']) {
+    const file = path.join(supOut, rel);
+    fs.writeFileSync(file, esbuild.transformSync(fs.readFileSync(file, 'utf8'), { minify: true, target: 'node20' }).code);
+  }
+}
 const supTgz = path.join(buildDir, `nocobase-multicore-supervisor-${supPkg.version}.tgz`);
 execFileSync('tar', ['czf', supTgz, '-C', supOut, '.']);
 summary.push(`${supPkg.name}@${supPkg.version} -> ${path.relative(root, supTgz)}`);

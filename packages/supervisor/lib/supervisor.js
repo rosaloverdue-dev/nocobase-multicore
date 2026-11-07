@@ -24,6 +24,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const WORKER_ENTRY = path.join(__dirname, 'worker-entry.js');
+
 function resolveEntry(env) {
   if (env.MULTICORE_APP_ENTRY) return env.MULTICORE_APP_ENTRY;
   try {
@@ -52,7 +54,7 @@ class Supervisor {
 
   // ---------- public API ----------
   async start() {
-    cluster.setupPrimary({ exec: this.entry, args: ['start'], silent: false });
+    cluster.setupPrimary({ exec: WORKER_ENTRY, args: ['start'], silent: false });
     cluster.on('message', (worker, message) => this.onMessage(worker, message));
     cluster.on('exit', (worker, code, signal) => this.onExit(worker, code, signal));
     process.on('SIGTERM', () => this.shutdown('SIGTERM'));
@@ -149,7 +151,7 @@ class Supervisor {
   }
 
   async spawn(id, mode, { quickstart = false, replacing = false } = {}) {
-    cluster.setupPrimary({ exec: this.entry, args: quickstart ? ['start', '--quickstart'] : ['start'], silent: false });
+    cluster.setupPrimary({ exec: WORKER_ENTRY, args: quickstart ? ['start', '--quickstart'] : ['start'], silent: false });
     const slot = { id, mode, state: 'starting', restarts: 0, startedAt: Date.now(), draining: false, worker: null, backoff: 1000 };
     this.slots.set(id, slot);
     this.fork(slot, { replacing });
@@ -264,7 +266,7 @@ class Supervisor {
     slot.backoff = Math.min(slot.backoff * 2, 30_000);
     setTimeout(() => {
       if (this.stopping || slot.draining || this.slots.get(slot.id) !== slot) return;
-      cluster.setupPrimary({ exec: this.entry, args: ['start'], silent: false });
+      cluster.setupPrimary({ exec: WORKER_ENTRY, args: ['start'], silent: false });
       this.fork(slot, { replacing: false });
     }, delay).unref();
   }

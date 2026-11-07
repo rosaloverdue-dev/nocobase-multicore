@@ -1,86 +1,151 @@
 **English** · [Русский](README.ru.md) · [简体中文](README.zh-CN.md)
 
-# nocobase-multicore
+<h1 align="center">nocobase-multicore</h1>
+<p align="center"><b>Run NocoBase 2.x on all CPU cores — switch it on with one click, install it with one command.</b></p>
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+  <img alt="NocoBase" src="https://img.shields.io/badge/NocoBase-2.x-2f54eb">
+  <img alt="tested" src="https://img.shields.io/badge/tested-2.2.33-brightgreen">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-6%2B-dc382d">
+  <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
+</p>
 
-Run **NocoBase 2.x (community edition) on several CPU cores** — with an admin switch in *Settings → Multi-core mode*.
+NocoBase (community edition) is a single Node.js process — **one CPU core**, however big your server is. `nocobase-multicore` starts it as **several worker processes behind one port**, balances requests between them by load, and moves everything that must be shared (events, locks, job queue, record ids, cache) to Redis. The NocoBase core is **not patched**: it is five ordinary plugins plus a small launcher, with an admin page under *Settings → Multi-core mode*.
 
-NocoBase is a single Node.js process, i.e. one CPU core. This project starts it as **several worker processes on one port** and moves everything that must be shared between the workers (events, locks, queues, record ids, cache) to Redis. The NocoBase core is **not patched**: it is done with five ordinary plugins and a small launcher.
+| | Stock NocoBase | With nocobase-multicore |
+|---|---|---|
+| CPU cores used | 1 | up to all (you choose the number of workers) |
+| One heavy request | freezes the whole site | only one worker is busy, the balancer sends everybody else to the free ones |
+| Restart / mode change | site is down | rolling replace, no errors for users |
+| Install | — | one command (Docker Compose: Redis included) |
+| Remove | — | one command, back to stock NocoBase; removing a plugin switches the cluster off by itself |
 
-> Status `0.1.0`, tested on NocoBase **2.2.33** on a test stand (see [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). The repository is private. AI agents continuing the work: start with [AGENTS.md](AGENTS.md).
+> Status `0.1.0` — tested on NocoBase **2.2.33** (see [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). AI agents continuing the work: start with [AGENTS.md](AGENTS.md).
+
+## Contents
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Load balancing](#load-balancing) · [Requirements](#requirements) · [Installation methods](#installation-methods) · [Launch methods](#launch-methods) · [Admin page](#admin-page) · [Configuration](#configuration-reference) · [Tests](#test-commands) · [FAQ](#workflows-safety-and-removal-faq) · [Troubleshooting](#troubleshooting) · [The parts in detail](#the-parts-in-detail)
+
+## Quick start
+
+NocoBase runs in **Docker Compose**? One command (run it on the Docker host; `<container>` is the NocoBase app container name from `docker ps`):
+
+```bash
+tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+./install.sh --docker <container> --workers 2
+```
+
+It installs and enables the five plugins, **adds a Redis container to your compose project**, switches the app to the supervisor entrypoint and recreates the app container. Then open *Settings → Multi-core mode* and press *Run check*. To go back: `./uninstall.sh --docker <container>`.
+
+NocoBase runs from a project folder (no Docker)?
+```bash
+./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
+cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # instead of `yarn start`
+```
+The bundle is in [`releases/v0.1.0`](releases/v0.1.0) (or build it: `node scripts/build.mjs`).
 
 ## What is inside
 
 | Part | Purpose |
 |---|---|
-| `supervisor` — launcher | Starts N workers (`node:cluster`), changes their number smoothly, restarts crashed ones. |
-| `plugin-multicore` | The admin page: switch, worker count, process table, cluster self-test, safeguard. |
+| `supervisor` — launcher | Starts N workers (`node:cluster`), balances requests, changes the number of workers smoothly, restarts crashed ones. |
+| `plugin-multicore` | The admin page: switch, worker count, live process table, cluster self-test, safeguard. |
 | `plugin-pubsub-adapter-redis` | Shared event bus between workers. |
 | `plugin-lock-adapter-redis` | Locks between processes. |
 | `plugin-queue-adapter-redis` | Shared job queue (each job goes to exactly one worker). |
 | `plugin-worker-id-allocator-redis` | Unique worker ids so two processes never create the same record id. |
 
-Each part is described in detail below (and in its own `README` inside `packages/<name>/`). When the mode is off — or Redis is not configured — the adapters change nothing and NocoBase runs as usual in one process.
+Each part is described below (and in `packages/<name>/README.md`). When the mode is off — or Redis is not configured — the adapters change nothing and NocoBase runs as usual in one process.
 
 ## How it works
 
 ```
- browser ─► :13000 ─► supervisor (node:cluster primary, does not serve requests)
-                        ├─ worker 1  (full NocoBase app)  ┐
-                        ├─ worker 2  (full NocoBase app)  ├─► PostgreSQL / MySQL  (shared database)
-                        └─ worker N  (full NocoBase app)  ┘
+ browser ─► nginx ─► :13000 supervisor (node:cluster primary + least-busy balancer)
+                        ├─► worker 1  (full NocoBase app, private port) ┐
+                        ├─► worker 2  (full NocoBase app, private port) ├─► PostgreSQL / MySQL (shared database)
+                        └─► worker N  (full NocoBase app, private port) ┘
                                   │ pub/sub · locks · job queue · worker ids · cache
                                   ▼
                                 Redis
 ```
-1. The OS spreads incoming connections between the workers (round-robin).
-2. Everything that used to live in the memory of the single process is now in Redis, through the extension points NocoBase itself provides (`pubSubManager`, `lockManager`, `eventQueue`, `workerIdAllocator`, cache store).
+1. The supervisor owns the public port. Every HTTP **request** and WebSocket goes to the worker that is least busy right now.
+2. Everything that used to live in the memory of the single process is in Redis, through the extension points NocoBase itself provides (`pubSubManager`, `lockManager`, `eventQueue`, `workerIdAllocator`, cache store).
 3. The admin page writes `storage/multicore/config.json`; the supervisor reads it and does a **rolling replace** (a new worker must accept requests before the old one is stopped), so users see no downtime.
+
+## Load balancing
+
+Plain `node:cluster` hands every new TCP connection to the next worker in turn, without looking at load. Behind a reverse proxy that opens a connection per request this means: a user whose request lands on a worker that is busy for 20 seconds with a heavy export waits, while another worker is idle.
+
+The built-in balancer fixes that:
+
+* each worker listens on a **private loopback port**; the supervisor owns the public port;
+* every HTTP request goes to the worker with the **fewest requests in flight**; a worker that stopped answering heartbeats (blocked event loop) is avoided while any other worker is available;
+* WebSockets are tunnelled to the worker with the fewest sockets; `X-Forwarded-For` is added;
+* a bodyless request is retried once on another worker if the connection fails; with no ready worker the client gets a clean JSON `503` with `Retry-After`;
+* during a rolling replace the old worker leaves the balancer first and is stopped only after its in-flight requests finished.
+
+Live numbers (requests in flight / served per worker) are in the admin page and in `storage/multicore/status.json`. `MULTICORE_BALANCER=off` returns to the plain shared-port mode.
+
+> A worker that is executing one huge synchronous request (for example a 5000-row list with many appended relations) cannot answer anything else until it finishes — JavaScript is single-threaded. The balancer routes everybody else around it, but the real cure is smaller pages / fewer appended relations in heavy blocks.
 
 ## Requirements
 
 * NocoBase **2.x** community (tested: `nocobase/nocobase:2.2.33`), Docker or a local project (`yarn nocobase ...`), Node.js ≥ 20.
-* PostgreSQL or MySQL/MariaDB shared by all workers (the same one NocoBase already uses). *SQLite is not suitable.*
-* **Redis ≥ 6** reachable as `REDIS_URL` (e.g. `redis://redis:6379/0`), `maxmemory-policy noeviction`.
-* Shared `storage/` directory (it is one machine / one volume).
+* PostgreSQL or MySQL/MariaDB shared by all workers (the one NocoBase already uses). *SQLite is not suitable.*
+* **Redis ≥ 6**, `maxmemory-policy noeviction`. With `install.sh --docker` on Docker Compose it is created for you; otherwise pass `--redis-url` / set `REDIS_URL`.
+* Shared `storage/` directory (one machine / one volume).
+* Memory: every worker is a full NocoBase process (≈350–400 MB). Do not start more workers than physical cores.
 
-## Installation
+## Installation methods
 
-### Option A — one command (recommended)
+### 1. One command — `install.sh` (recommended)
 
-Download the bundle `nocobase-multicore-bundle-0.1.0.tgz` from [`releases/v0.1.0`](https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/releases/v0.1.0) (or from a GitHub Release), unpack and run:
+Download the bundle from [`releases/v0.1.0`](releases/v0.1.0), unpack, run:
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
-
-# NocoBase in Docker (give the container name):
-./install.sh --docker <container-name> --restart
-
-# NocoBase from a project directory:
-./install.sh --local /path/to/nocobase-project
+./install.sh --docker <container-name> [--workers N]      # Docker (Compose: Redis + entrypoint are configured for you)
+./install.sh --local /path/to/nocobase --redis-url URL     # project folder / VM
 ```
-The script (idempotent — safe to run again): copies the five plugins to `storage/plugins/@rosal-nb/`, the supervisor to `storage/multicore/supervisor/`, runs `pm add` and `pm enable` for every plugin. Options: `--no-enable`, `--restart`, `--from <dir>`.
 
-### Option B — upload the TGZ files in the browser
+| Option | Meaning |
+|---|---|
+| `--workers N` | also switch multi-core mode on right away (otherwise switch it in the UI) |
+| `--redis-url URL` | use your own Redis instead of creating one (always needed for `--local`) |
+| `--no-switch` | install plugins only; do not touch compose, entrypoint or Redis |
+| `--no-enable` | register the plugins but do not enable them |
+| `--from DIR` | folder with the `*.tgz` packages |
+| `--restart` | (with `--no-switch`) restart the container afterwards |
 
-*Settings → Plugin manager → Add plugin → Upload*, one by one: `rosal-nb-plugin-pubsub-adapter-redis`, `…lock-adapter-redis`, `…queue-adapter-redis`, `…worker-id-allocator-redis`, `…plugin-multicore` (the `*.tgz` files from the release folder), then **enable** each of them. The supervisor (it is not a plugin) still has to be copied once — see step 2 below. Upload/enable from the UI in a running cluster only affects the process that handled the request, so **restart the container afterwards**.
+For a Docker Compose container the script reads the compose labels, writes `docker-compose.multicore.yml` next to your compose file (supervisor entrypoint, `REDIS_URL`, a `multicore-redis` service on the app's network) and runs `docker compose up -d` for the app. It is idempotent. `./uninstall.sh --docker <container> [--purge]` removes the override again and recreates the app with its original entrypoint.
 
-### Option C — manual commands
+### 2. Upload the TGZ files in the browser
+
+*Settings → Plugin manager → Add plugin → Upload*, one by one: the five `nb-multicore-plugin-*.tgz` files, then **enable** each. The supervisor and Redis are not plugins — you still need to give the app a `REDIS_URL` and start it through the supervisor (see [Launch methods](#launch-methods)); `install.sh --no-enable` / the manual commands below copy the supervisor. Upload/enable from the UI inside a running cluster affects only one worker, so **restart the container afterwards**. This is the only path where Redis must be set up by hand.
+
+### 3. Manual commands
 
 ```bash
-# in the NocoBase container / project directory
+# inside the NocoBase container / project directory
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
-  mkdir -p storage/plugins/@rosal-nb/plugin-$p
-  tar xzf rosal-nb-plugin-$p-0.1.0.tgz -C storage/plugins/@rosal-nb/plugin-$p
-  yarn nocobase pm add @rosal-nb/plugin-$p
+  mkdir -p storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-yarn nocobase pm enable @rosal-nb/plugin-pubsub-adapter-redis @rosal-nb/plugin-lock-adapter-redis \
-  @rosal-nb/plugin-queue-adapter-redis @rosal-nb/plugin-worker-id-allocator-redis @rosal-nb/plugin-multicore
 mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+yarn nocobase postinstall          # links storage/plugins into node_modules
+yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
+  @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
 ```
+Then start NocoBase through the supervisor with a `REDIS_URL` (next section).
 
-### Step 2 — start NocoBase through the supervisor (once)
+## Launch methods
 
-**Docker** — add Redis and change the container entrypoint (see the full example `docker/docker-compose.example.yml`):
+| Method | Command | When |
+|---|---|---|
+| Docker Compose (official image) | entrypoint `/bin/sh /app/nocobase/storage/multicore/supervisor/docker/entrypoint.sh` + `REDIS_URL` (`install.sh` does it) | production |
+| Local / PM2 / systemd | `REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobase-multicore.js` | NocoBase from a project folder |
+| Stock mode (no supervisor) | the usual `yarn start` / image entrypoint | the plugins stay inactive, nothing changes |
+| Test stand | `docker compose -f docker/docker-compose.example.yml up -d` | try everything from scratch (NocoBase + PostgreSQL + Redis) |
+
+A compose file by hand:
 ```yaml
 services:
   app:
@@ -92,23 +157,20 @@ services:
       # CORS_ORIGIN_WHITELIST: "https://crm.example.com"
     volumes: ["./storage:/app/nocobase/storage"]
   redis:
-    image: redis:7
-    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
 ```
-**Local project** — start the launcher instead of `yarn start`:
-```bash
-REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobase-multicore.js
-```
-Then open **Settings → Multi-core mode**, switch it on, choose the number of workers (start with the number of CPU cores) and press *Apply*. *Run check* runs the cluster self-test.
 
-## Launch methods used
+## Admin page
 
-| Method | Command | When |
-|---|---|---|
-| Docker (official image) | entrypoint `…/supervisor/docker/entrypoint.sh` | production, the example stand |
-| Local / PM2 / systemd | `node storage/multicore/supervisor/bin/nocobase-multicore.js` | NocoBase from a project folder |
-| Stock mode (no supervisor) | the usual `yarn start` / image entrypoint | the plugins stay inactive, nothing changes |
-| Test stand | `docker compose -f docker/docker-compose.example.yml up -d` | try everything from scratch (NocoBase + PostgreSQL + Redis) |
+*Settings → Multi-core mode* (English, Russian and Simplified Chinese; other UI languages fall back to English):
+
+* **switch** and **number of workers** with the number of server CPU cores shown next to it; *Apply* does a rolling replace;
+* **live process table**: slot, PID, state, uptime, CPU %, memory, event-loop lag, **requests in flight / served**, instance id, host;
+* **adapter status** (pub/sub, locks, queue, worker ids, cache) and Redis latency/version;
+* **cluster self-test**: pub/sub reaches every worker, locks exclude other processes, 20 queue jobs run exactly once, worker ids are distinct.
+
+If something blocks the switch (Redis down, a plugin disabled, app not started under the supervisor) the page says exactly why. The page needs the `pm.multicore` permission (root has it).
 
 ## Test commands
 
@@ -119,6 +181,7 @@ Then open **Settings → Multi-core mode**, switch it on, choose the number of w
 | Data consistency across workers (writes on one, reads on all) | `BASE=http://host:13000 USER_NAME=admin PASSWORD=... node tests/consistency.js` (env `READS`, `ROUNDS`) |
 | Load / benchmark | `BASE=... TOKEN=... CONC=64 SECONDS=20 GET_URL=/api/... node tests/bench.js` |
 | Workflows: record trigger + "create record" node, N rows | `BASE_URL=... NB_USER=admin NB_PASSWORD=... node tests/workflow.js 150 12 0` (3rd arg `1` = synchronous workflow, `KEEP=1` keeps the test data) |
+| Install / uninstall on a clean Docker Compose project | `./install.sh --docker <c> --workers 2` then `./uninstall.sh --docker <c> --purge` |
 | Build all packages | `node scripts/build.mjs` (needs `esbuild`; `MINIFY=1` optional) → `build/*.tgz` |
 Results of the runs done so far: [docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 
@@ -128,6 +191,7 @@ Results of the runs done so far: [docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 |---|---|
 | `REDIS_URL` | Redis address (**required** for cluster mode). |
 | `MULTICORE_MAX_WORKERS` | Upper bound for the worker count (default `min(cpus×2, 32)`). |
+| `MULTICORE_BALANCER` | `off` = plain shared-port round-robin instead of the least-busy balancer (default on). |
 | `MULTICORE_APP_ENTRY` | Path to `@nocobase/app/lib/index.js` (auto-detected). |
 | `MULTICORE_QUICKSTART` | `0` = do not run `--quickstart` on the first start. |
 | `MULTICORE_EXIT_GRACE_MS` | Time a stopping worker gets before `process.exit` (default 10000). |
@@ -153,7 +217,7 @@ Results of the runs done so far: [docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 |---|---|
 | The switch refuses to turn on | The message says why: Redis does not answer, a plugin is not enabled, or the app was not started through the supervisor (step 2). |
 | *Invalid sign-in origin* | Set `CORS_ORIGIN_WHITELIST` to the address you open in the browser (NocoBase's own check behind proxies). |
-| A "Script error for @rosal-nb/…" full-screen error | An old build without the client stub; use the files from this release. |
+| A "Script error for @nb-multicore/…" full-screen error | An old build without the client stub; use the files from this release. |
 | Plugin enabled in the UI but adapter inactive | Restart the container (cluster: only one worker saw the change). |
 | Log line `… adapter not activated: REDIS_URL is not set` | Single mode or no Redis: expected, nothing is broken. |
 
@@ -167,13 +231,12 @@ _Starts NocoBase as several worker processes sharing one port, and changes their
 
 NocoBase community edition is a single Node.js process, i.e. one CPU core. The supervisor is a tiny launcher
 (plain Node.js, no NocoBase imports) built on `node:cluster`. It is the **primary** process: it does not serve requests itself, it
-forks N **workers**, and every worker runs a complete NocoBase application. The operating system hands incoming
-connections to the workers round-robin, so the work is spread over several cores.
+forks N **workers**, and every worker runs a complete NocoBase application. Incoming requests to the least busy worker (built-in balancer), so the work is spread over several cores.
 
 **Functionality**
 
 * Starts 1..N workers (`bin/nocobase-multicore.js`); the first start of slot 0 runs `start --quickstart` (install/upgrade of the database), like the stock image.
-* **Rolling replace** when the mode or the number of workers changes: a new worker is started, the supervisor waits until it really accepts requests, then the old one leaves the round-robin (`disconnect`), is told to stop (`SIGTERM`, 30 s grace, then `SIGKILL`). Users see no errors.
+* **Rolling replace** when the mode or the number of workers changes: a new worker is started, the supervisor waits until it really accepts requests, then the old one leaves the balancer and finishes its in-flight requests, is told to stop (`SIGTERM`, 30 s grace, then `SIGKILL`). Users see no errors.
 * Scale up / scale down (the highest slots are stopped first).
 * Respawns a crashed worker with exponential back-off (1 s → 30 s).
 * Writes `storage/multicore/status.json` (mode, workers, states) and reads `storage/multicore/config.json` (what the admin page saved). Re-reads the config on an IPC message from a worker, on `SIGHUP`, and every 10 s.
@@ -211,7 +274,7 @@ docker exec <container> cat storage/multicore/status.json     # desired mode and
 docker logs <container> 2>&1 | grep '\[multicore\]'           # supervisor events
 ```
 
-### Manager plugin — `@rosal-nb/plugin-multicore`
+### Manager plugin — `@nb-multicore/plugin-multicore`
 
 _The admin page with the multi-core switch, the worker table and the cluster self-test._
 
@@ -232,7 +295,7 @@ as an API, and watches the cluster. It does not move any NocoBase function itsel
 **How it is built**
 
 Server: registers the `multicore` resource and the ACL snippet, talks to the supervisor through Node IPC (`process.send`), writes the
-config atomically (tmp file + rename). Client: a normal NocoBase client plugin (React + Ant Design) registered as a settings page; the UI language is English or Russian following the NocoBase language.
+config atomically (tmp file + rename). Client: a normal NocoBase client plugin (React + Ant Design) registered as a settings page; the UI language (English, Russian or Simplified Chinese) follows the NocoBase language.
 
 **Configuration**
 
@@ -249,7 +312,7 @@ curl -s -X POST $BASE/api/multicore:selftest -H "Authorization: Bearer $TOKEN"  
 curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
-### Pub/Sub adapter — `@rosal-nb/plugin-pubsub-adapter-redis`
+### Pub/Sub adapter — `@nb-multicore/plugin-pubsub-adapter-redis`
 
 _Makes events visible to all workers (Redis Pub/Sub)._
 
@@ -285,7 +348,7 @@ No data is stored in Redis (fire-and-forget channels). Disabling/removing the pl
 
 The *Run check* button of the manager page (pub/sub reaches N of N workers), or create a collection in the UI and open it on another browser tab: it is visible within ~1 s. `node tests/consistency.js` automates this.
 
-### Lock adapter — `@rosal-nb/plugin-lock-adapter-redis`
+### Lock adapter — `@nb-multicore/plugin-lock-adapter-redis`
 
 _Makes locks work between processes (Redis `SET NX PX`)._
 
@@ -319,7 +382,7 @@ Locks are short-lived keys with TTL: a crash leaves nothing behind that blocks t
 
 *Run check* on the manager page: a lock held by the page's worker must keep out every other worker (`lockblocked = N-1`, `lockleak = 0`). `node tests/workflow.js` and a 5-second schedule workflow check the practical effect (exactly one run per tick).
 
-### Queue adapter — `@rosal-nb/plugin-queue-adapter-redis`
+### Queue adapter — `@nb-multicore/plugin-queue-adapter-redis`
 
 _One shared job queue for all workers (Redis Streams): every job is processed by exactly one worker._
 
@@ -352,7 +415,7 @@ Unfinished jobs live in Redis. When you switch the cluster off, the stock in-mem
 
 *Run check*: 20 test jobs → 20 processed, 0 duplicates, spread over workers. `node tests/workflow.js 600 24 0` sends 600 real workflow executions through the queue: expect 600/600.
 
-### Worker-id allocator — `@rosal-nb/plugin-worker-id-allocator-redis`
+### Worker-id allocator — `@nb-multicore/plugin-worker-id-allocator-redis`
 
 _Gives every process its own id so that two workers never create the same record id._
 

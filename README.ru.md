@@ -1,114 +1,157 @@
 [English](README.md) · **Русский** · [简体中文](README.zh-CN.md)
 
-# nocobase-multicore
+<h1 align="center">nocobase-multicore</h1>
+<p align="center"><b>NocoBase 2.x на всех ядрах процессора: включается одним переключателем, ставится одной командой.</b></p>
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+  <img alt="NocoBase" src="https://img.shields.io/badge/NocoBase-2.x-2f54eb">
+  <img alt="tested" src="https://img.shields.io/badge/tested-2.2.33-brightgreen">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-6%2B-dc382d">
+  <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
+</p>
 
-Запуск **NocoBase 2.x (community) на нескольких ядрах процессора** — с переключателем в *Настройки → Многоядерный режим*.
+NocoBase (community) — это один процесс Node.js, то есть **одно ядро процессора**, каким бы большим ни был сервер. `nocobase-multicore` запускает его как **несколько рабочих процессов за одним портом**, распределяет запросы по загрузке и переносит всё, что должно быть общим (события, блокировки, очередь задач, id записей, кэш), в Redis. Ядро NocoBase **не патчится**: это пять обычных плагинов и небольшой лаунчер, плюс страница *Настройки → Многоядерный режим*.
 
-NocoBase — это один процесс Node.js, то есть одно ядро процессора. Проект запускает его как **несколько процессов-воркеров на одном порту** и переносит всё, что должно быть общим между воркерами (события, блокировки, очереди, id записей, кэш), в Redis. Ядро NocoBase **не патчится**: всё сделано пятью обычными плагинами и небольшим лаунчером.
+| | Обычный NocoBase | С nocobase-multicore |
+|---|---|---|
+| Используется ядер | 1 | до всех (число воркеров выбираете вы) |
+| Один тяжёлый запрос | подвешивает весь сайт | занят один воркер, остальных пользователей балансировщик ведёт к свободным |
+| Перезапуск / смена режима | сайт недоступен | плавная замена, без ошибок у пользователей |
+| Установка | — | одна команда (Docker Compose: Redis включён) |
+| Удаление | — | одна команда, снова обычный NocoBase; удаление плагина само выключает кластер |
 
-> Статус `0.1.0`, проверено на NocoBase **2.2.33** на тестовом стенде (см. [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). Репозиторий приватный. ИИ-агентам, продолжающим работу: начните с [AGENTS.md](AGENTS.md).
+> Статус `0.1.0` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
+
+## Быстрый старт
+
+NocoBase в **Docker Compose**? Одна команда (на хосте Docker; `<container>` — имя контейнера приложения из `docker ps`):
+
+```bash
+tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+./install.sh --docker <container> --workers 2
+```
+
+Скрипт ставит и включает пять плагинов, **добавляет контейнер Redis в ваш compose-проект**, переключает приложение на точку входа супервизора и пересоздаёт контейнер. Затем откройте *Настройки → Многоядерный режим* и нажмите «Запустить проверку». Вернуть всё обратно: `./uninstall.sh --docker <container>`.
+
+NocoBase запущен из папки проекта (без Docker)?
+```bash
+./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
+cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # вместо `yarn start`
+```
+Бандл лежит в [`releases/v0.1.0`](releases/v0.1.0) (или соберите: `node scripts/build.mjs`).
 
 ## Что внутри
 
-| Часть | Зачем |
+| Часть | Назначение |
 |---|---|
-| `supervisor` — лаунчер | Запускает N воркеров (`node:cluster`), плавно меняет их число, перезапускает упавшие. |
-| `plugin-multicore` | Страница настроек: переключатель, число воркеров, таблица процессов, самопроверка кластера, страховка. |
+| `supervisor` — лаунчер | Запускает N воркеров (`node:cluster`), распределяет запросы, плавно меняет число воркеров, перезапускает упавших. |
+| `plugin-multicore` | Страница администратора: переключатель, число воркеров, таблица процессов, самопроверка кластера, страховка. |
 | `plugin-pubsub-adapter-redis` | Общая шина событий между воркерами. |
 | `plugin-lock-adapter-redis` | Блокировки между процессами. |
-| `plugin-queue-adapter-redis` | Общая очередь задач (каждая задача — ровно одному воркеру). |
-| `plugin-worker-id-allocator-redis` | Уникальные worker id, чтобы два процесса не создали записи с одинаковым id. |
+| `plugin-queue-adapter-redis` | Общая очередь задач (каждая задача уходит ровно одному воркеру). |
+| `plugin-worker-id-allocator-redis` | Уникальные id воркеров: два процесса никогда не создадут одинаковый id записи. |
 
-Каждая часть подробно описана ниже (и в собственном `README` в `packages/<имя>/`). Когда режим выключен — или Redis не настроен — адаптеры ничего не меняют, и NocoBase работает как обычно в одном процессе.
+Если режим выключен или Redis не настроен, адаптеры ничего не меняют, и NocoBase работает как обычно в одном процессе.
 
 ## Как это работает
 
 ```
- браузер ─► :13000 ─► супервизор (главный процесс node:cluster, запросы не обслуживает)
-                        ├─ worker 1  (полное приложение NocoBase)  ┐
-                        ├─ worker 2  (полное приложение NocoBase)  ├─► PostgreSQL / MySQL  (общая база данных)
-                        └─ worker N  (полное приложение NocoBase)  ┘
+ браузер ─► nginx ─► :13000 супервизор (node:cluster primary + балансировщик «наименее занятый»)
+                        ├─► воркер 1 (полное приложение NocoBase, приватный порт) ┐
+                        ├─► воркер 2 (полное приложение NocoBase, приватный порт) ├─► PostgreSQL / MySQL
+                        └─► воркер N (полное приложение NocoBase, приватный порт) ┘
                                   │ pub/sub · блокировки · очередь · worker id · кэш
                                   ▼
                                 Redis
 ```
-1. Операционная система раздаёт входящие соединения воркерам по кругу.
-2. Всё, что раньше жило в памяти единственного процесса, теперь в Redis — через штатные точки расширения самого NocoBase (`pubSubManager`, `lockManager`, `eventQueue`, `workerIdAllocator`, хранилище кэша).
-3. Страница настроек пишет `storage/multicore/config.json`; супервизор читает его и делает **плавную замену** (новый воркер должен начать принимать запросы, прежде чем остановится старый) — простоя у пользователей нет.
+1. Публичный порт принадлежит супервизору. Каждый HTTP-**запрос** и WebSocket уходит к воркеру, который сейчас наименее занят.
+2. Всё, что жило в памяти одного процесса, лежит в Redis — через штатные точки расширения NocoBase (`pubSubManager`, `lockManager`, `eventQueue`, `workerIdAllocator`, хранилище кэша).
+3. Страница администратора пишет `storage/multicore/config.json`; супервизор читает его и делает **плавную замену** (новый воркер принимает запросы раньше, чем остановится старый) — простоя нет.
+
+## Распределение нагрузки
+
+Обычный `node:cluster` отдаёт каждое новое TCP-соединение следующему воркеру по кругу, не глядя на нагрузку. За прокси, который открывает соединение на каждый запрос, это значит: пользователь, чей запрос попал на воркер, занятый 20 секунд тяжёлой выгрузкой, ждёт, пока другой воркер простаивает.
+
+Встроенный балансировщик это исправляет:
+
+* каждый воркер слушает **приватный loopback-порт**, публичный порт держит супервизор;
+* каждый HTTP-запрос идёт к воркеру с **наименьшим числом запросов в работе**; воркер, перестав отвечать на heartbeat (заблокирован цикл событий), обходится, пока есть другие;
+* WebSocket туннелируются к воркеру с наименьшим числом сокетов, добавляется `X-Forwarded-For`;
+* запрос без тела при ошибке соединения повторяется один раз на другом воркере; если готовых воркеров нет — аккуратный JSON `503` с `Retry-After`;
+* при плавной замене старый воркер сначала выходит из балансировки и останавливается только после завершения своих запросов.
+
+Живые числа (запросов в работе / обработано) видны на странице и в `storage/multicore/status.json`. `MULTICORE_BALANCER=off` возвращает обычный режим с общим портом.
+
+> Воркер, выполняющий один огромный синхронный запрос (например, список на 5000 строк со множеством подгружаемых связей), ничего другого не ответит, пока не закончит: JavaScript однопоточный. Балансировщик ведёт остальных мимо него, но настоящее лекарство — меньшие страницы и меньше подгружаемых связей в тяжёлых блоках.
 
 ## Требования
 
-* NocoBase **2.x** community (проверено: `nocobase/nocobase:2.2.33`), Docker или локальный проект (`yarn nocobase ...`), Node.js ≥ 20.
-* PostgreSQL или MySQL/MariaDB, общая для всех воркеров (та же, что уже использует NocoBase). *SQLite не подходит.*
-* **Redis ≥ 6**, доступный как `REDIS_URL` (например `redis://redis:6379/0`), `maxmemory-policy noeviction`.
+* NocoBase **2.x** community (проверено: `nocobase/nocobase:2.2.33`), Docker или проект из папки (`yarn nocobase ...`), Node.js ≥ 20.
+* PostgreSQL или MySQL/MariaDB, общая для всех воркеров. *SQLite не подходит.*
+* **Redis ≥ 6**, `maxmemory-policy noeviction`. При `install.sh --docker` в Docker Compose он создаётся сам; иначе укажите `--redis-url` / `REDIS_URL`.
 * Общая папка `storage/` (одна машина / один том).
+* Память: каждый воркер — полный процесс NocoBase (≈350–400 МБ). Воркеров не больше, чем физических ядер.
 
-## Установка
+## Способы установки
 
-### Вариант A — одна команда (рекомендуется)
+### 1. Одна команда — `install.sh` (рекомендуется)
 
-Скачайте архив `nocobase-multicore-bundle-0.1.0.tgz` из [`releases/v0.1.0`](https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/releases/v0.1.0) (или из GitHub Release), распакуйте и запустите:
+Скачайте бандл из [`releases/v0.1.0`](releases/v0.1.0), распакуйте и запустите:
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
-
-# NocoBase в Docker (укажите имя контейнера):
-./install.sh --docker <имя-контейнера> --restart
-
-# NocoBase из папки проекта:
-./install.sh --local /путь/к/проекту-nocobase
+./install.sh --docker <имя-контейнера> [--workers N]       # Docker (Compose: Redis и entrypoint настраиваются сами)
+./install.sh --local /path/to/nocobase --redis-url URL      # папка проекта / виртуалка
 ```
-Скрипт (идемпотентный — можно запускать повторно): копирует пять плагинов в `storage/plugins/@rosal-nb/`, супервизор — в `storage/multicore/supervisor/`, выполняет `pm add` и `pm enable` для каждого плагина. Опции: `--no-enable`, `--restart`, `--from <папка>`.
 
-### Вариант B — загрузить TGZ-файлы в браузере
+| Опция | Значение |
+|---|---|
+| `--workers N` | сразу включить многоядерный режим (иначе включите в интерфейсе) |
+| `--redis-url URL` | использовать свой Redis вместо создаваемого (для `--local` нужен всегда) |
+| `--no-switch` | только поставить плагины, не трогать compose, entrypoint и Redis |
+| `--no-enable` | зарегистрировать плагины, но не включать |
+| `--from DIR` | папка с `*.tgz` |
+| `--restart` | (вместе с `--no-switch`) перезапустить контейнер |
 
-*Настройки → Менеджер плагинов → Добавить плагин → Загрузить*, по одному: `rosal-nb-plugin-pubsub-adapter-redis`, `…lock-adapter-redis`, `…queue-adapter-redis`, `…worker-id-allocator-redis`, `…plugin-multicore` (файлы `*.tgz` из папки релиза), затем **включите** каждый. Супервизор (это не плагин) всё равно нужно один раз скопировать — см. шаг 2 ниже. Загрузка/включение из интерфейса в работающем кластере затрагивает только процесс, принявший запрос, поэтому **после этого перезапустите контейнер**.
+Для контейнера Docker Compose скрипт читает compose-метки, пишет `docker-compose.multicore.yml` рядом с вашим compose-файлом (entrypoint супервизора, `REDIS_URL`, сервис `multicore-redis` в сети приложения) и делает `docker compose up -d` для приложения. Скрипт идемпотентен. `./uninstall.sh --docker <container> [--purge]` убирает этот файл и пересоздаёт приложение с исходным entrypoint.
 
-### Вариант C — ручные команды
+### 2. Загрузка TGZ в браузере
+
+*Настройки → Менеджер плагинов → Добавить → Загрузить*, по очереди пять файлов `nb-multicore-plugin-*.tgz`, затем **включить** каждый. Супервизор и Redis — не плагины: приложению всё равно нужны `REDIS_URL` и запуск через супервизор (см. «Способы запуска»). Загрузка/включение из интерфейса в работающем кластере затрагивает один воркер, поэтому **после этого перезапустите контейнер**. Только на этом пути Redis нужно настраивать вручную.
+
+### 3. Ручные команды
 
 ```bash
-# в контейнере NocoBase / папке проекта
+# внутри контейнера NocoBase / папки проекта
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
-  mkdir -p storage/plugins/@rosal-nb/plugin-$p
-  tar xzf rosal-nb-plugin-$p-0.1.0.tgz -C storage/plugins/@rosal-nb/plugin-$p
-  yarn nocobase pm add @rosal-nb/plugin-$p
+  mkdir -p storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-yarn nocobase pm enable @rosal-nb/plugin-pubsub-adapter-redis @rosal-nb/plugin-lock-adapter-redis \
-  @rosal-nb/plugin-queue-adapter-redis @rosal-nb/plugin-worker-id-allocator-redis @rosal-nb/plugin-multicore
 mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+yarn nocobase postinstall          # связывает storage/plugins с node_modules
+yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
+  @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
 ```
+Затем запустите NocoBase через супервизор с `REDIS_URL`.
 
-### Шаг 2 — запустить NocoBase через супервизор (один раз)
-
-**Docker** — добавьте Redis и замените entrypoint контейнера (полный пример: `docker/docker-compose.example.yml`):
-```yaml
-services:
-  app:
-    image: nocobase/nocobase:2.2.33
-    entrypoint: ["/bin/sh", "/app/nocobase/storage/multicore/supervisor/docker/entrypoint.sh"]
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      # за прокси / при другом имени хоста, если видите "Invalid sign-in origin":
-      # CORS_ORIGIN_WHITELIST: "https://crm.example.com"
-    volumes: ["./storage:/app/nocobase/storage"]
-  redis:
-    image: redis:7
-    command: ["redis-server", "--maxmemory-policy", "noeviction"]
-```
-**Локальный проект** — запускайте лаунчер вместо `yarn start`:
-```bash
-REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobase-multicore.js
-```
-Затем откройте **Настройки → Многоядерный режим**, включите переключатель, выберите число воркеров (начните с числа ядер процессора) и нажмите «Применить». «Запустить проверку» запускает самопроверку кластера.
-
-## Используемые способы запуска
+## Способы запуска
 
 | Способ | Команда | Когда |
 |---|---|---|
-| Docker (официальный образ) | entrypoint `…/supervisor/docker/entrypoint.sh` | боевой сервер, пример-стенд |
-| Локально / PM2 / systemd | `node storage/multicore/supervisor/bin/nocobase-multicore.js` | NocoBase из папки проекта |
-| Штатный режим (без супервизора) | обычный `yarn start` / entrypoint образа | плагины неактивны, ничего не меняется |
-| Тестовый стенд | `docker compose -f docker/docker-compose.example.yml up -d` | попробовать с нуля (NocoBase + PostgreSQL + Redis) |
+| Docker Compose (официальный образ) | entrypoint `/bin/sh /app/nocobase/storage/multicore/supervisor/docker/entrypoint.sh` + `REDIS_URL` (делает `install.sh`) | боевой сервер |
+| Локально / PM2 / systemd | `REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobase-multicore.js` | NocoBase из папки проекта |
+| Обычный режим (без супервизора) | привычный `yarn start` / entrypoint образа | плагины неактивны, ничего не меняется |
+| Тестовый стенд | `docker compose -f docker/docker-compose.example.yml up -d` | попробовать всё с нуля (NocoBase + PostgreSQL + Redis) |
+
+## Страница администратора
+
+*Настройки → Многоядерный режим* (английский, русский и китайский; другие языки интерфейса — на английском):
+
+* **переключатель** и **число воркеров** (рядом — число ядер сервера); «Применить» выполняет плавную замену;
+* **таблица процессов в реальном времени**: слот, PID, состояние, аптайм, CPU %, память, задержка цикла событий, **запросов в работе / обработано**, id экземпляра, хост;
+* **состояние адаптеров** (pub/sub, блокировки, очередь, worker id, кэш), задержка и версия Redis;
+* **самопроверка кластера**: pub/sub доходит до всех воркеров, блокировки исключают другие процессы, 20 задач очереди выполняются ровно по разу, worker id различаются.
+
+Если переключатель заблокирован (Redis недоступен, плагин выключен, приложение запущено не через супервизор), страница пишет причину. Нужно право `pm.multicore` (у root оно есть).
 
 ## Тестовые команды
 
@@ -128,6 +171,7 @@ REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobas
 |---|---|
 | `REDIS_URL` | Адрес Redis (**обязательна** для режима кластера). |
 | `MULTICORE_MAX_WORKERS` | Верхняя граница числа воркеров (по умолчанию `min(ядра×2, 32)`). |
+| `MULTICORE_BALANCER` | `off` = обычный режим с общим портом вместо балансировщика «наименее занятый» (по умолчанию включён). |
 | `MULTICORE_APP_ENTRY` | Путь к `@nocobase/app/lib/index.js` (определяется автоматически). |
 | `MULTICORE_QUICKSTART` | `0` — не выполнять `--quickstart` при первом запуске. |
 | `MULTICORE_EXIT_GRACE_MS` | Сколько времени останавливающийся воркер имеет до `process.exit` (по умолчанию 10000). |
@@ -153,7 +197,7 @@ REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobas
 |---|---|
 | Переключатель не включается | В сообщении указана причина: Redis не отвечает, плагин не включён или приложение запущено не через супервизор (шаг 2). |
 | *Invalid sign-in origin* | Задайте `CORS_ORIGIN_WHITELIST` равным адресу, который открываете в браузере (штатная проверка NocoBase за прокси). |
-| Полноэкранная ошибка «Script error for @rosal-nb/…» | Старая сборка без клиентской заглушки; используйте файлы из этого выпуска. |
+| Полноэкранная ошибка «Script error for @nb-multicore/…» | Старая сборка без клиентской заглушки; используйте файлы из этого выпуска. |
 | Плагин включён в интерфейсе, но адаптер не активен | Перезапустите контейнер (в кластере изменение увидел только один воркер). |
 | В логе `… adapter not activated: REDIS_URL is not set` | Одиночный режим или нет Redis: так и должно быть, ничего не сломано. |
 
@@ -167,7 +211,7 @@ _Запускает NocoBase несколькими процессами-вор�
 
 NocoBase community — это один процесс Node.js, то есть одно ядро процессора. Супервизор — маленький лаунчер (чистый Node.js, без импортов NocoBase)
 на `node:cluster`. Это **главный** процесс: сам запросы не обслуживает, а запускает N **воркеров**, и каждый воркер — полноценное приложение NocoBase.
-Операционная система раздаёт входящие соединения воркерам по кругу, поэтому нагрузка распределяется по нескольким ядрам.
+Встроенный балансировщик направляет каждый запрос к наименее занятому воркеру, поэтому нагрузка распределяется по нескольким ядрам.
 
 **Функционал**
 
@@ -209,7 +253,7 @@ docker exec <контейнер> cat storage/multicore/status.json     # нуж�
 docker logs <контейнер> 2>&1 | grep '\[multicore\]'           # события супервизора
 ```
 
-### Плагин-менеджер — `@rosal-nb/plugin-multicore`
+### Плагин-менеджер — `@nb-multicore/plugin-multicore`
 
 _Страница настроек с переключателем многоядерного режима, таблицей процессов и самопроверкой кластера._
 
@@ -229,7 +273,7 @@ _Страница настроек с переключателем многоя�
 
 **Как устроено**
 
-Сервер: регистрирует ресурс `multicore` и ACL-сниппет, общается с супервизором через Node IPC (`process.send`), пишет конфиг атомарно (временный файл + rename). Клиент: обычный клиентский плагин NocoBase (React + Ant Design), страница настроек; язык интерфейса — английский или русский по языку NocoBase.
+Сервер: регистрирует ресурс `multicore` и ACL-сниппет, общается с супервизором через Node IPC (`process.send`), пишет конфиг атомарно (временный файл + rename). Клиент: обычный клиентский плагин NocoBase (React + Ant Design), страница настроек; язык интерфейса — английский, русский или китайский по языку NocoBase.
 
 **Настройка**
 
@@ -246,7 +290,7 @@ curl -s -X POST $BASE/api/multicore:selftest -H "Authorization: Bearer $TOKEN"  
 curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
-### Адаптер Pub/Sub — `@rosal-nb/plugin-pubsub-adapter-redis`
+### Адаптер Pub/Sub — `@nb-multicore/plugin-pubsub-adapter-redis`
 
 _Делает события видимыми для всех воркеров (Redis Pub/Sub)._
 
@@ -279,7 +323,7 @@ _Делает события видимыми для всех воркеров (
 
 Кнопка «Запустить проверку» на странице менеджера (pub/sub доходит до N из N воркеров), либо создайте коллекцию в интерфейсе и откройте её в другой вкладке браузера: она видна примерно через 1 с. Автоматизировано в `node tests/consistency.js`.
 
-### Адаптер блокировок — `@rosal-nb/plugin-lock-adapter-redis`
+### Адаптер блокировок — `@nb-multicore/plugin-lock-adapter-redis`
 
 _Блокировки работают между процессами (Redis `SET NX PX`)._
 
@@ -313,7 +357,7 @@ NocoBase использует блокировки (`app.lockManager`), чтоб
 
 «Запустить проверку»: блокировка, удерживаемая воркером страницы, не должна пускать остальные (`lockblocked = N-1`, `lockleak = 0`). Практический эффект проверяют `node tests/workflow.js` и рабочий процесс-расписание на 5 секунд (ровно один запуск за такт).
 
-### Адаптер очереди — `@rosal-nb/plugin-queue-adapter-redis`
+### Адаптер очереди — `@nb-multicore/plugin-queue-adapter-redis`
 
 _Одна общая очередь задач для всех воркеров (Redis Streams): каждую задачу обрабатывает ровно один воркер._
 
@@ -345,7 +389,7 @@ NocoBase складывает фоновую работу в очередь со
 
 «Запустить проверку»: 20 тестовых задач → 20 обработано, 0 дубликатов, распределены по воркерам. `node tests/workflow.js 600 24 0` пропускает через очередь 600 настоящих выполнений рабочих процессов: ожидается 600/600.
 
-### Выдача worker id — `@rosal-nb/plugin-worker-id-allocator-redis`
+### Выдача worker id — `@nb-multicore/plugin-worker-id-allocator-redis`
 
 _Даёт каждому процессу свой id, чтобы два воркера не создали запись с одинаковым id._
 

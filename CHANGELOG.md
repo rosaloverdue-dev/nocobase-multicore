@@ -1,6 +1,18 @@
 # Changelog
 
 ## 0.1.0 — 2026-11-07
+Highlights of the release:
+
+* **Least-busy load balancer** inside the supervisor: workers listen on private loopback ports, each HTTP request / WebSocket goes to the least busy worker, stalled workers are avoided, rolling replace drains in-flight requests. `MULTICORE_BALANCER=off` restores the shared-port mode. Live counters in the admin page and `status.json`.
+* **One-command install**: `install.sh --docker <container> [--workers N]` adds Redis to the Docker Compose project, switches the entrypoint and recreates the app; `--local <dir> --redis-url URL` for project folders; `uninstall.sh` reverts everything (`--purge` also removes the Redis volume).
+* Installer uses `postinstall` + `pm enable` (`pm add` does nothing for local plugins on NocoBase 2.2.33).
+* Worker entry works with a bare `.env` (no `APP_PACKAGE_ROOT`), as in local installs.
+* Admin page in English, Russian and Simplified Chinese; menu title is localised; per-worker requests in flight / served.
+* English documentation and README with language switcher (EN / RU / 中文); Russian originals of the long docs in `docs/ru/`.
+* Unit tests for the balancer (`npm run test:unit`).
+
+Details:
+
 First release. Verified on NocoBase 2.2.33 (see `docs/TEST-REPORT.md`).
 
 * Supervisor (`node:cluster`) with rolling mode switch, scale up/down, crash respawn with backoff.

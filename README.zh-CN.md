@@ -1,114 +1,157 @@
 [English](README.md) · [Русский](README.ru.md) · **简体中文**
 
-# nocobase-multicore
+<h1 align="center">nocobase-multicore</h1>
+<p align="center"><b>让 NocoBase 2.x 用上所有 CPU 核心——一键开启，一条命令安装。</b></p>
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+  <img alt="NocoBase" src="https://img.shields.io/badge/NocoBase-2.x-2f54eb">
+  <img alt="tested" src="https://img.shields.io/badge/tested-2.2.33-brightgreen">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-6%2B-dc382d">
+  <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
+</p>
 
-让 **NocoBase 2.x（社区版）运行在多个 CPU 核心上**——在 *设置 → Multi-core mode（多核模式）* 中提供开关。
+NocoBase（社区版）只有一个 Node.js 进程，也就是**只用一个 CPU 核心**，服务器再大也一样。`nocobase-multicore` 把它启动为**同一端口后的多个工作进程**，按负载分配请求，并把必须共享的内容（事件、锁、任务队列、记录 ID、缓存）迁移到 Redis。**不修改 NocoBase 内核**：由五个普通插件和一个小型启动器组成，管理页面位于 *设置 → 多核模式*。
 
-NocoBase 只有一个 Node.js 进程，也就是只用一个 CPU 核心。本项目把它启动为**共用同一端口的多个工作进程**，并把工作进程之间必须共享的内容（事件、锁、队列、记录 ID、缓存）迁移到 Redis。**不修改 NocoBase 内核**：全部由五个普通插件和一个小型启动器完成。
+| | 原生 NocoBase | 使用 nocobase-multicore |
+|---|---|---|
+| 使用的核心数 | 1 | 最多全部（工作进程数由你决定） |
+| 一个繁重请求 | 卡住整个站点 | 只占用一个工作进程，负载均衡器把其他用户引向空闲进程 |
+| 重启 / 切换模式 | 站点中断 | 滚动替换，用户无感知 |
+| 安装 | — | 一条命令（Docker Compose：自动带 Redis） |
+| 卸载 | — | 一条命令，恢复原生 NocoBase；移除插件会自动关闭集群 |
 
-> 状态 `0.1.0`，已在测试环境中针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。仓库为私有。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
+> 状态 `0.1.0`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
+
+## 快速开始
+
+NocoBase 运行在 **Docker Compose** 中？一条命令（在 Docker 主机上执行；`<container>` 为 `docker ps` 中的应用容器名）：
+
+```bash
+tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+./install.sh --docker <container> --workers 2
+```
+
+脚本会安装并启用五个插件，**在你的 compose 项目中加入 Redis 容器**，把应用切换到守护进程入口并重建应用容器。然后打开 *设置 → 多核模式* 点击“运行检查”。恢复原状：`./uninstall.sh --docker <container>`。
+
+NocoBase 从项目目录运行（不用 Docker）？
+```bash
+./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
+cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # 代替 `yarn start`
+```
+安装包位于 [`releases/v0.1.0`](releases/v0.1.0)（或自行构建：`node scripts/build.mjs`）。
 
 ## 包含的内容
 
-| 组成部分 | 作用 |
+| 部分 | 作用 |
 |---|---|
-| `supervisor` — 启动器 | 启动 N 个工作进程（`node:cluster`），平滑调整数量，重启崩溃的进程。 |
-| `plugin-multicore` | 管理页面：开关、进程数量、进程表、集群自检、保护机制。 |
+| `supervisor` — 启动器 | 启动 N 个工作进程（`node:cluster`），分配请求，平滑调整进程数，重启崩溃的进程。 |
+| `plugin-multicore` | 管理页面：开关、进程数、实时进程表、集群自检、安全保护。 |
 | `plugin-pubsub-adapter-redis` | 工作进程之间共享的事件总线。 |
 | `plugin-lock-adapter-redis` | 跨进程的锁。 |
 | `plugin-queue-adapter-redis` | 共享任务队列（每个任务只交给一个工作进程）。 |
 | `plugin-worker-id-allocator-redis` | 唯一的工作进程 ID，避免两个进程生成相同的记录 ID。 |
 
-下文对每个部分都有详细说明（也可见 `packages/<名称>/` 中各自的 `README`）。关闭多核模式——或未配置 Redis——时，适配器不做任何改变，NocoBase 照常以单进程运行。
+模式关闭或未配置 Redis 时，适配器不做任何改变，NocoBase 照常以单进程运行。
 
 ## 工作原理
 
 ```
- 浏览器 ─► :13000 ─► 守护进程（node:cluster 主进程，不处理请求）
-                        ├─ worker 1  （完整 NocoBase 应用）  ┐
-                        ├─ worker 2  （完整 NocoBase 应用）  ├─► PostgreSQL / MySQL  （共享数据库）
-                        └─ worker N  （完整 NocoBase 应用）  ┘
-                                  │ pub/sub · 锁 · 任务队列 · 工作进程 ID · 缓存
-                                  ▼
-                                Redis
+ 浏览器 ─► nginx ─► :13000 守护进程（node:cluster 主进程 + “最空闲优先”负载均衡）
+                      ├─► 工作进程 1（完整 NocoBase 应用，私有端口） ┐
+                      ├─► 工作进程 2（完整 NocoBase 应用，私有端口） ├─► PostgreSQL / MySQL
+                      └─► 工作进程 N（完整 NocoBase 应用，私有端口） ┘
+                                │ pub/sub · 锁 · 任务队列 · 工作进程 ID · 缓存
+                                ▼
+                              Redis
 ```
-1. 操作系统把传入连接轮流分配给各个工作进程。
-2. 原来保存在单个进程内存中的一切，现在通过 NocoBase 自身提供的扩展点（`pubSubManager`、`lockManager`、`eventQueue`、`workerIdAllocator`、缓存存储）放到 Redis 中。
-3. 管理页面写入 `storage/multicore/config.json`；守护进程读取后执行**滚动替换**（新进程能接收请求后才停止旧进程），用户不会感知到停机。
+1. 公共端口由守护进程持有，每个 HTTP **请求**和 WebSocket 都交给当前最空闲的工作进程。
+2. 原本在单进程内存里的内容都放进 Redis，使用 NocoBase 自带的扩展点（`pubSubManager`、`lockManager`、`eventQueue`、`workerIdAllocator`、缓存存储）。
+3. 管理页面写入 `storage/multicore/config.json`，守护进程读取后执行**滚动替换**（新进程能处理请求后才停止旧进程），没有停机时间。
+
+## 负载均衡
+
+原生 `node:cluster` 按顺序把每个新 TCP 连接交给下一个工作进程，不看负载。当反向代理每个请求都新建连接时，如果某个请求落到正忙于 20 秒大导出的进程上，用户就得等待，而另一个进程却是空闲的。
+
+内置负载均衡器解决了这个问题：
+
+* 每个工作进程监听**私有回环端口**，公共端口由守护进程持有；
+* 每个 HTTP 请求交给**处理中请求最少**的工作进程；停止响应心跳（事件循环被阻塞）的进程在有其他可用进程时会被绕开；
+* WebSocket 被转发到连接数最少的进程，并添加 `X-Forwarded-For`；
+* 无请求体的请求在连接失败时会在另一个进程上重试一次；没有可用进程时返回带 `Retry-After` 的 JSON `503`；
+* 滚动替换时，旧进程先退出负载均衡，等其处理中的请求完成后才停止。
+
+实时数据（每个进程的处理中 / 已处理请求数）显示在管理页面和 `storage/multicore/status.json` 中。`MULTICORE_BALANCER=off` 可恢复为普通共享端口模式。
+
+> 正在执行一个巨大同步请求的进程（例如带大量关联的 5000 行列表）在完成之前无法处理其他请求——JavaScript 是单线程的。均衡器会让其他用户绕开它，但根本办法是在繁重的区块中减小分页并减少附加关联。
 
 ## 环境要求
 
-* NocoBase **2.x** 社区版（已测试：`nocobase/nocobase:2.2.33`），Docker 或本地项目（`yarn nocobase ...`），Node.js ≥ 20。
-* 所有工作进程共用的 PostgreSQL 或 MySQL/MariaDB（即 NocoBase 已在使用的数据库）。*不适用 SQLite。*
-* **Redis ≥ 6**，通过 `REDIS_URL` 访问（如 `redis://redis:6379/0`），`maxmemory-policy noeviction`。
-* 共享的 `storage/` 目录（同一台机器/同一个卷）。
+* NocoBase **2.x** 社区版（已测试：`nocobase/nocobase:2.2.33`），Docker 或项目目录（`yarn nocobase ...`），Node.js ≥ 20。
+* 所有工作进程共用的 PostgreSQL 或 MySQL/MariaDB。*不支持 SQLite。*
+* **Redis ≥ 6**，`maxmemory-policy noeviction`。在 Docker Compose 中使用 `install.sh --docker` 会自动创建；否则请传入 `--redis-url` / 设置 `REDIS_URL`。
+* 共享的 `storage/` 目录（同一台机器 / 同一个卷）。
+* 内存：每个工作进程是完整的 NocoBase 进程（约 350–400 MB）。进程数不要超过物理核心数。
 
-## 安装
+## 安装方式
 
-### 方式 A — 一条命令（推荐）
+### 1. 一条命令 — `install.sh`（推荐）
 
-从 [`releases/v0.1.0`](https://github.com/rosaloverdue-dev/nocobase-multicore/tree/main/releases/v0.1.0)（或 GitHub Release）下载 `nocobase-multicore-bundle-0.1.0.tgz`，解压并运行：
+从 [`releases/v0.1.0`](releases/v0.1.0) 下载安装包，解压后运行：
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
-
-# NocoBase 运行在 Docker 中（填写容器名称）：
-./install.sh --docker <容器名> --restart
-
-# NocoBase 以项目目录方式运行：
-./install.sh --local /path/to/nocobase-project
+./install.sh --docker <容器名> [--workers N]               # Docker（Compose：自动配置 Redis 和入口）
+./install.sh --local /path/to/nocobase --redis-url URL      # 项目目录 / 虚拟机
 ```
-脚本是幂等的（可重复运行）：把五个插件复制到 `storage/plugins/@rosal-nb/`，把守护进程复制到 `storage/multicore/supervisor/`，并对每个插件执行 `pm add` 与 `pm enable`。可选参数：`--no-enable`、`--restart`、`--from <目录>`。
 
-### 方式 B — 在浏览器中上传 TGZ 文件
+| 选项 | 含义 |
+|---|---|
+| `--workers N` | 立即开启多核模式（否则在界面中开启） |
+| `--redis-url URL` | 使用自己的 Redis 而不是自动创建（`--local` 必须提供） |
+| `--no-switch` | 只安装插件，不改动 compose、入口和 Redis |
+| `--no-enable` | 只注册插件，不启用 |
+| `--from DIR` | 存放 `*.tgz` 的目录 |
+| `--restart` | （配合 `--no-switch`）之后重启容器 |
 
-*设置 → 插件管理器 → 添加插件 → 上传*，依次上传：`rosal-nb-plugin-pubsub-adapter-redis`、`…lock-adapter-redis`、`…queue-adapter-redis`、`…worker-id-allocator-redis`、`…plugin-multicore`（发布目录中的 `*.tgz` 文件），然后逐个**启用**。守护进程（不是插件）仍需复制一次——见下面的第 2 步。在运行中的集群里通过界面上传/启用只会影响处理该请求的那个进程，因此**之后请重启容器**。
+对于 Docker Compose 容器，脚本会读取 compose 标签，在你的 compose 文件旁写入 `docker-compose.multicore.yml`（守护进程入口、`REDIS_URL`、位于应用网络中的 `multicore-redis` 服务），并对应用执行 `docker compose up -d`。脚本是幂等的。`./uninstall.sh --docker <container> [--purge]` 会删除该文件，并用原始入口重建应用。
 
-### 方式 C — 手动命令
+### 2. 在浏览器中上传 TGZ
+
+*设置 → 插件管理器 → 添加 → 上传*，依次上传五个 `nb-multicore-plugin-*.tgz` 文件，然后**启用**。守护进程和 Redis 不是插件：应用仍需设置 `REDIS_URL` 并通过守护进程启动（见“启动方式”）。在运行中的集群里通过界面上传/启用只影响一个工作进程，因此**之后请重启容器**。只有这种方式需要手动配置 Redis。
+
+### 3. 手动命令
 
 ```bash
-# 在 NocoBase 容器 / 项目目录中
+# 在 NocoBase 容器 / 项目目录内
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
-  mkdir -p storage/plugins/@rosal-nb/plugin-$p
-  tar xzf rosal-nb-plugin-$p-0.1.0.tgz -C storage/plugins/@rosal-nb/plugin-$p
-  yarn nocobase pm add @rosal-nb/plugin-$p
+  mkdir -p storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-yarn nocobase pm enable @rosal-nb/plugin-pubsub-adapter-redis @rosal-nb/plugin-lock-adapter-redis \
-  @rosal-nb/plugin-queue-adapter-redis @rosal-nb/plugin-worker-id-allocator-redis @rosal-nb/plugin-multicore
 mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+yarn nocobase postinstall          # 把 storage/plugins 链接到 node_modules
+yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
+  @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
 ```
+然后带上 `REDIS_URL` 通过守护进程启动 NocoBase。
 
-### 第 2 步 — 通过守护进程启动 NocoBase（只需一次）
-
-**Docker** — 添加 Redis 并修改容器入口（完整示例见 `docker/docker-compose.example.yml`）：
-```yaml
-services:
-  app:
-    image: nocobase/nocobase:2.2.33
-    entrypoint: ["/bin/sh", "/app/nocobase/storage/multicore/supervisor/docker/entrypoint.sh"]
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      # 位于代理之后 / 使用其他主机名时，如出现 "Invalid sign-in origin"：
-      # CORS_ORIGIN_WHITELIST: "https://crm.example.com"
-    volumes: ["./storage:/app/nocobase/storage"]
-  redis:
-    image: redis:7
-    command: ["redis-server", "--maxmemory-policy", "noeviction"]
-```
-**本地项目** — 用启动器代替 `yarn start`：
-```bash
-REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobase-multicore.js
-```
-然后打开 **设置 → Multi-core mode**，打开开关，选择工作进程数量（建议从 CPU 核心数开始），点击“应用”。“运行检查”会执行集群自检。
-
-## 使用的启动方式
+## 启动方式
 
 | 方式 | 命令 | 适用场景 |
 |---|---|---|
-| Docker（官方镜像） | 入口 `…/supervisor/docker/entrypoint.sh` | 生产环境、示例环境 |
-| 本地 / PM2 / systemd | `node storage/multicore/supervisor/bin/nocobase-multicore.js` | 以项目目录运行的 NocoBase |
-| 原生模式（不用守护进程） | 通常的 `yarn start` / 镜像入口 | 插件不生效，一切照旧 |
+| Docker Compose（官方镜像） | 入口 `/bin/sh /app/nocobase/storage/multicore/supervisor/docker/entrypoint.sh` + `REDIS_URL`（`install.sh` 自动完成） | 生产环境 |
+| 本地 / PM2 / systemd | `REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobase-multicore.js` | 从项目目录运行的 NocoBase |
+| 原生模式（无守护进程） | 通常的 `yarn start` / 镜像入口 | 插件保持不活动，不改变任何行为 |
 | 测试环境 | `docker compose -f docker/docker-compose.example.yml up -d` | 从零体验（NocoBase + PostgreSQL + Redis） |
+
+## 管理页面
+
+*设置 → 多核模式*（英文、俄文和简体中文；其他界面语言回退为英文）：
+
+* **开关**和**工作进程数量**（旁边显示服务器 CPU 核心数）；点击“应用”执行滚动替换；
+* **实时进程表**：槽位、PID、状态、运行时间、CPU %、内存、事件循环延迟、**处理中 / 已处理请求数**、实例 ID、主机；
+* **适配器状态**（pub/sub、锁、队列、工作进程 ID、缓存）以及 Redis 延迟与版本；
+* **集群自检**：pub/sub 送达每个进程，锁能排斥其他进程，20 个队列任务各执行一次，工作进程 ID 互不相同。
+
+如果开关被阻止（Redis 不可用、插件未启用、应用未通过守护进程启动），页面会明确说明原因。需要 `pm.multicore` 权限（root 拥有）。
 
 ## 测试命令
 
@@ -128,6 +171,7 @@ REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobas
 |---|---|
 | `REDIS_URL` | Redis 地址（集群模式**必填**）。 |
 | `MULTICORE_MAX_WORKERS` | 工作进程数量上限（默认 `min(核心数×2, 32)`）。 |
+| `MULTICORE_BALANCER` | `off` = 使用普通共享端口模式而不是“最空闲优先”负载均衡（默认开启）。 |
 | `MULTICORE_APP_ENTRY` | `@nocobase/app/lib/index.js` 的路径（自动检测）。 |
 | `MULTICORE_QUICKSTART` | `0` = 首次启动时不执行 `--quickstart`。 |
 | `MULTICORE_EXIT_GRACE_MS` | 停止中的工作进程在 `process.exit` 之前的时限（默认 10000）。 |
@@ -153,7 +197,7 @@ REDIS_URL=redis://127.0.0.1:6379/0 node storage/multicore/supervisor/bin/nocobas
 |---|---|
 | 开关无法打开 | 提示中会说明原因：Redis 无响应、插件未启用，或应用不是通过守护进程启动的（第 2 步）。 |
 | *Invalid sign-in origin* | 将 `CORS_ORIGIN_WHITELIST` 设为您在浏览器中打开的地址（NocoBase 在代理后的自带检查）。 |
-| 全屏错误 “Script error for @rosal-nb/…” | 旧版本缺少客户端占位文件；请使用本发布版中的文件。 |
+| 全屏错误 “Script error for @nb-multicore/…” | 旧版本缺少客户端占位文件；请使用本发布版中的文件。 |
 | 界面中已启用插件，但适配器未生效 | 重启容器（集群中只有一个进程看到了该变更）。 |
 | 日志出现 `… adapter not activated: REDIS_URL is not set` | 单进程模式或没有 Redis：属预期情况，没有任何问题。 |
 
@@ -166,7 +210,7 @@ _以多个工作进程共享同一端口的方式启动 NocoBase，并可在不�
 **基础**
 
 NocoBase 社区版只有一个 Node.js 进程，也就是只用到一个 CPU 核心。守护进程（supervisor）是一个很小的启动器（纯 Node.js，不引用 NocoBase 代码），基于 `node:cluster`。
-它是**主进程**：自己不处理请求，而是启动 N 个**工作进程**，每个工作进程都是一个完整的 NocoBase 应用。操作系统把新连接轮流分给各个工作进程，从而把负载分摊到多个核心上。
+它是**主进程**：自己不处理请求，而是启动 N 个**工作进程**，每个工作进程都是一个完整的 NocoBase 应用。内置负载均衡器把每个请求交给最空闲的工作进程，从而把负载分摊到多个核心上。
 
 **功能**
 
@@ -208,7 +252,7 @@ docker exec <容器> cat storage/multicore/status.json     # 目标模式及每�
 docker logs <容器> 2>&1 | grep '\[multicore\]'           # 守护进程事件
 ```
 
-### 管理插件 — `@rosal-nb/plugin-multicore`
+### 管理插件 — `@nb-multicore/plugin-multicore`
 
 _带有多核模式开关、进程表格和集群自检的管理页面。_
 
@@ -228,7 +272,7 @@ _带有多核模式开关、进程表格和集群自检的管理页面。_
 
 **实现方式**
 
-服务端：注册 `multicore` 资源和 ACL 片段，通过 Node IPC（`process.send`）与守护进程通信，原子地写入配置（临时文件 + rename）。客户端：标准的 NocoBase 客户端插件（React + Ant Design），以设置页面形式注册；界面语言为英文或俄文（跟随 NocoBase 语言）。
+服务端：注册 `multicore` 资源和 ACL 片段，通过 Node IPC（`process.send`）与守护进程通信，原子地写入配置（临时文件 + rename）。客户端：标准的 NocoBase 客户端插件（React + Ant Design），以设置页面形式注册；界面语言为英文、俄文或简体中文（跟随 NocoBase 语言）。
 
 **配置**
 
@@ -245,7 +289,7 @@ curl -s -X POST $BASE/api/multicore:selftest -H "Authorization: Bearer $TOKEN"  
 curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
-### Pub/Sub 适配器 — `@rosal-nb/plugin-pubsub-adapter-redis`
+### Pub/Sub 适配器 — `@nb-multicore/plugin-pubsub-adapter-redis`
 
 _让事件对所有工作进程可见（Redis Pub/Sub）。_
 
@@ -278,7 +322,7 @@ Redis 中不保存任何数据（发后即忘的频道）。禁用/删除插件�
 
 管理页面的“运行检查”按钮（pub/sub 送达 N/N 个工作进程）；或在界面中创建一个数据表，并在另一个浏览器标签页中打开：约 1 秒内可见。`node tests/consistency.js` 将此过程自动化。
 
-### 锁适配器 — `@rosal-nb/plugin-lock-adapter-redis`
+### 锁适配器 — `@nb-multicore/plugin-lock-adapter-redis`
 
 _让锁在进程之间生效（Redis `SET NX PX`）。_
 
@@ -311,7 +355,7 @@ NocoBase 使用锁（`app.lockManager`）避免两个操作同时执行——例
 
 管理页面“运行检查”：页面所在工作进程持有的锁必须挡住其他所有工作进程（`lockblocked = N-1`，`lockleak = 0`）。实际效果可通过 `node tests/workflow.js` 以及一个 5 秒间隔的定时工作流验证（每个周期恰好运行一次）。
 
-### 队列适配器 — `@rosal-nb/plugin-queue-adapter-redis`
+### 队列适配器 — `@nb-multicore/plugin-queue-adapter-redis`
 
 _所有工作进程共用一个任务队列（Redis Streams）：每个任务只会被一个工作进程处理。_
 
@@ -343,7 +387,7 @@ NocoBase 把后台工作放入事件队列（`app.eventQueue`）：异步工作�
 
 “运行检查”：20 个测试任务 → 处理 20 个、重复 0 个，并分散到各工作进程。`node tests/workflow.js 600 24 0` 通过队列发送 600 个真实的工作流执行：期望 600/600。
 
-### 工作进程 ID 分配器 — `@rosal-nb/plugin-worker-id-allocator-redis`
+### 工作进程 ID 分配器 — `@nb-multicore/plugin-worker-id-allocator-redis`
 
 _为每个进程分配唯一的 ID，避免两个工作进程生成相同的记录 ID。_
 

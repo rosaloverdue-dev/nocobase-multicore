@@ -15,7 +15,10 @@ function load() {
     util = require(require.resolve('@nocobase/cli/src/util', { paths: [process.cwd()] }));
   }
   util.initEnv();
-  return process.env.MULTICORE_APP_ENTRY || path.resolve(process.cwd(), process.env.APP_PACKAGE_ROOT, 'lib/index.js');
+  if (process.env.MULTICORE_APP_ENTRY) return process.env.MULTICORE_APP_ENTRY;
+  if (process.env.APP_PACKAGE_ROOT) return path.resolve(process.cwd(), process.env.APP_PACKAGE_ROOT, 'lib/index.js');
+  // bare .env without APP_PACKAGE_ROOT (typical for a local install): the app package is a normal dependency
+  return require.resolve('@nocobase/app/lib/index.js', { paths: [process.cwd()] });
 }
 
 // NocoBase stops the app on SIGTERM but leaves the process alive (open handles), which would make every rolling
@@ -63,6 +66,19 @@ if (process.env.MULTICORE_DEFER_LISTEN !== '0') {
     poll();
     return this;
   };
+}
+
+// Tell the supervisor's balancer that this event loop is alive. A worker that is busy for seconds (a huge query being
+// serialised) stops sending these, so the balancer sends new requests elsewhere until it answers again.
+if (process.send && process.env.MULTICORE_SUPERVISED === '1') {
+  const beat = setInterval(() => {
+    try {
+      process.send({ cmd: 'multicore', type: 'hb' });
+    } catch (e) {
+      // supervisor gone
+    }
+  }, 500);
+  beat.unref?.();
 }
 
 require(load());

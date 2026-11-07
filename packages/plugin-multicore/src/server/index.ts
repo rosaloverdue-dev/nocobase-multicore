@@ -9,10 +9,10 @@ import { isClusterMode, keyPrefix, redisUrl, sleep } from '../../../shared/src/e
 import { turnOffClusterMode } from '../../../shared/src/safeguard';
 
 const ADAPTER_PLUGINS = {
-  pubsub: '@rosal-nb/plugin-pubsub-adapter-redis',
-  lock: '@rosal-nb/plugin-lock-adapter-redis',
-  queue: '@rosal-nb/plugin-queue-adapter-redis',
-  workerId: '@rosal-nb/plugin-worker-id-allocator-redis',
+  pubsub: '@nb-multicore/plugin-pubsub-adapter-redis',
+  lock: '@nb-multicore/plugin-lock-adapter-redis',
+  queue: '@nb-multicore/plugin-queue-adapter-redis',
+  workerId: '@nb-multicore/plugin-worker-id-allocator-redis',
 } as const;
 
 const HEARTBEAT_EVERY = 5_000;
@@ -295,8 +295,15 @@ export class PluginMulticore extends Plugin {
     }
     // A worker replaced during a mode switch keeps its temporary slot id (1000+n) in its env; the supervisor knows the real one.
     const slotByPid = new Map<number, number>((supervisor?.workers || []).map((w: any) => [w.pid, w.slot]));
+    const loadBySlot = new Map<number, any>(((supervisor as any)?.balancer?.upstreams || []).map((u: any) => [u.slot, u]));
     for (const worker of workers as any[]) {
       if (slotByPid.has(worker.pid)) worker.slot = String(slotByPid.get(worker.pid));
+      const load = loadBySlot.get(Number(worker.slot));
+      if (load) {
+        worker.inflight = load.inflight;
+        worker.served = load.served;
+        worker.stalled = load.stalled;
+      }
     }
     workers.sort((a: any, b: any) => Number(a.slot ?? 0) - Number(b.slot ?? 0) || a.pid - b.pid);
     const config = cfg.readConfig();

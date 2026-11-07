@@ -1,6 +1,6 @@
 [English](README.md) · [Русский](README.ru.md) · **简体中文**
 
-# 工作进程 ID 分配器 — `@rosal-nb/plugin-worker-id-allocator-redis`
+# 工作进程 ID 分配器 — `@nb-multicore/plugin-worker-id-allocator-redis`
 
 _为每个进程分配唯一的 ID，避免两个工作进程生成相同的记录 ID。_
 
@@ -37,4 +37,4 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 ```
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@rosal-nb/plugin-worker-id-allocator-redis` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-worker-id-allocator-redis` · v0.1.0 · AGPL-3.0-only

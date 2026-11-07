@@ -1,6 +1,6 @@
 [English](README.md) · [Русский](README.ru.md) · **简体中文**
 
-# Pub/Sub 适配器 — `@rosal-nb/plugin-pubsub-adapter-redis`
+# Pub/Sub 适配器 — `@nb-multicore/plugin-pubsub-adapter-redis`
 
 _让事件对所有工作进程可见（Redis Pub/Sub）。_
 
@@ -34,4 +34,4 @@ Redis 中不保存任何数据（发后即忘的频道）。禁用/删除插件�
 管理页面的“运行检查”按钮（pub/sub 送达 N/N 个工作进程）；或在界面中创建一个数据表，并在另一个浏览器标签页中打开：约 1 秒内可见。`node tests/consistency.js` 将此过程自动化。
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@rosal-nb/plugin-pubsub-adapter-redis` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-pubsub-adapter-redis` · v0.1.0 · AGPL-3.0-only

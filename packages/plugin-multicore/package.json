@@ -1,5 +1,5 @@
 {
-  "name": "@rosal-nb/plugin-multicore",
+  "name": "@nb-multicore/plugin-multicore",
   "version": "0.1.0",
   "displayName": "Multicore: multi-core switch",
   "displayName.ru-RU": "Multicore: переключатель многоядерного режима",

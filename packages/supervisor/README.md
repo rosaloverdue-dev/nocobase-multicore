@@ -53,4 +53,4 @@ docker logs <container> 2>&1 | grep '\[multicore\]'           # supervisor event
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@rosal-nb/multicore-supervisor` · v0.1.0 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/multicore-supervisor` · v0.1.0 · AGPL-3.0-only

@@ -1,81 +1,85 @@
-# Эксплуатация
+# Operations
 
-## Требования
-* NocoBase 2.x (проверено 2.2.33), Node.js 20+ внутри образа.
-* Redis 6+ (проверено 7.4) c `maxmemory-policy noeviction` или без вытеснения ключей `mcore:*`.
-* PostgreSQL/MySQL — как для обычного NocoBase. Соединений с БД понадобится ×N воркеров: проверьте `max_connections`.
+## Requirements
+* NocoBase 2.x (tested 2.2.33), Node.js 20+ in the image.
+* Redis 6+ (tested 7.4), `maxmemory-policy noeviction` (or at least no eviction of `mcore:*` keys).
+* PostgreSQL/MySQL as for plain NocoBase. You need ×N database connections for N workers — check `max_connections`.
 
-## Установка и удаление (скрипты)
-Из распакованного бандла `nocobase-multicore-bundle-<версия>.tgz` (или из `scripts/` репозитория):
+## Install and uninstall (one command)
+From the unpacked bundle `nocobase-multicore-bundle-<version>.tgz`:
 ```bash
-./install.sh --docker <контейнер> --restart     # либо: ./install.sh --local /путь/к/проекту
-./uninstall.sh --docker <контейнер>             # --purge дополнительно удаляет папку супервизора
+./install.sh --docker <container>          # Docker Compose: Redis + entrypoint are configured for you
+./install.sh --local /path/to/nocobase     # bare-metal / VM; give your Redis: --redis-url redis://host:6379/0
+./uninstall.sh --docker <container>        # --purge also removes the supervisor files and the Redis volume
 ```
-`install.sh` идемпотентен: копирует плагины в `storage/plugins/@rosal-nb/<имя>/`, супервизор в `storage/multicore/supervisor/`, выполняет `pm add` + `pm enable`. Опции: `--no-enable`, `--from <папка с tgz>`, `--restart`.
-`uninstall.sh`: (1) записывает `enabled:false` и ждёт, пока супервизор вернётся к одному процессу; (2) `pm disable`; (3) `pm remove` и удаление `storage/plugins/@rosal-nb`; (4) папку `storage/multicore/supervisor` **оставляет**, пока контейнер запускается через неё (удаляйте с `--purge` только после возврата на штатный entrypoint).
+`install.sh` options: `--workers N` (switch cluster mode on right away), `--redis-url URL`, `--no-switch`, `--no-enable`, `--from <dir with tgz>`, `--restart`.
 
-## Файлы лаунчера
-Лаунчер лежит в `storage/multicore/supervisor/` (его кладёт `install.sh`; в репозитории — `packages/supervisor`). Точка входа: `node storage/multicore/supervisor/bin/nocobase-multicore.js`, запускать из корня проекта NocoBase (в образе `/app/nocobase`).
+For a Docker Compose container it reads the compose labels, writes `docker-compose.multicore.yml` next to your compose file (supervisor entrypoint, `REDIS_URL`, a `multicore-redis` service attached to the app's network) and recreates the app with `docker compose up -d`. If the app already has `REDIS_URL`, no Redis service is added. `uninstall.sh` removes the override again and recreates the app with its original entrypoint.
 
-## Docker (официальный образ `nocobase/nocobase`)
-Образ запускает приложение последней строкой своего `/app/docker-entrypoint.sh` (`yarn start --quickstart`). Скрипт `packages/supervisor/docker/entrypoint.sh` берёт штатный entrypoint, заменяет только эту строку на запуск лаунчера и выполняет его — остальная подготовка образа (nginx, клиентские файлы) сохраняется. Если в новой версии образа строка изменилась, скрипт остановится с понятной ошибкой.
+Manual Redis is only needed for: containers not started by Docker Compose, `--local` installs, and plugins uploaded through *Plugin manager → Add* (pass `--redis-url`, or set `REDIS_URL` yourself).
 
-В сервис `app` нужно добавить:
+## Launcher files
+`storage/multicore/supervisor/` (put there by `install.sh`; source in `packages/supervisor`). Entry point: `node storage/multicore/supervisor/bin/nocobase-multicore.js`, run from the NocoBase project root (`/app/nocobase` in the image).
+
+## Docker (official `nocobase/nocobase` image)
+The image starts the app with the last line of `/app/docker-entrypoint.sh` (`yarn start --quickstart`). `packages/supervisor/docker/entrypoint.sh` takes the stock entrypoint, replaces only that line with the launcher and runs it — the rest of the image preparation (nginx, client files) is kept. If a new image changes the line, the script stops with a clear error.
+
+Add to the `app` service (this is what `install.sh` does for you):
 ```yaml
 entrypoint: ["/bin/sh", "/app/nocobase/storage/multicore/supervisor/docker/entrypoint.sh"]
 environment:
   REDIS_URL: redis://redis:6379/0
-  # CORS_ORIGIN_WHITELIST: "https://ваш-адрес"   # если «Invalid sign-in origin» за прокси
+  # CORS_ORIGIN_WHITELIST: "https://your-address"   # if "Invalid sign-in origin" behind a proxy
 ```
-Готовый пример — `docker/docker-compose.example.yml` (там лаунчер примонтирован как `/multicore`).
+A ready example: `docker/docker-compose.example.yml`.
 
-## Не Docker
-Из корня проекта: `node storage/multicore/supervisor/bin/nocobase-multicore.js` вместо `yarn start`. Переменные окружения те же, что у обычного запуска (`.env` читается воркерами так же, как это делает `nocobase start`).
+## Not Docker
+From the project root run `node storage/multicore/supervisor/bin/nocobase-multicore.js` instead of `yarn start`. Environment variables are the same as for a normal start (`.env` is read like `nocobase start` does). The supervisor owns `APP_PORT` (default 13000); workers listen on private loopback ports.
 
-## Подключение плагинов вручную
+## Enabling plugins manually
 ```bash
-cd /app/nocobase   # корень проекта в контейнере
-for p in plugin-pubsub-adapter-redis plugin-lock-adapter-redis plugin-queue-adapter-redis plugin-worker-id-allocator-redis plugin-multicore; do
-  yarn nocobase pm add @rosal-nb/$p
-done
-yarn nocobase pm enable @rosal-nb/plugin-pubsub-adapter-redis @rosal-nb/plugin-lock-adapter-redis \
-  @rosal-nb/plugin-queue-adapter-redis @rosal-nb/plugin-worker-id-allocator-redis @rosal-nb/plugin-multicore
+cd /app/nocobase
+# 1. unpack each nb-multicore-plugin-<name>-<version>.tgz into storage/plugins/@nb-multicore/plugin-<name>/
+# 2. link the plugins into node_modules (NocoBase 2.x: `pm add` does nothing for plugins that are already in storage/plugins)
+yarn nocobase postinstall
+yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
+  @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
 ```
-Папки плагинов лежат в `storage/plugins/@rosal-nb/<имя>/`. Либо загрузите `.tgz` из релиза через «Менеджер плагинов → Добавить → Загрузить». **Включение/загрузка из интерфейса в работающем кластере затрагивает только обработавший запрос воркер — после этого перезапустите контейнер.**
+Plugin folders live in `storage/plugins/@nb-multicore/<name>/`. Or upload the `.tgz` files from the release via *Plugin manager → Add → Upload*. **Enabling/uploading from the UI while the cluster runs reaches only the worker that served the request — restart the app afterwards.**
 
-## Рабочие процессы и удаление плагинов
-* Триггеры и рабочие процессы работают как в одном процессе (тесты `tests/workflow.js`: 150/150, 600/600, синхронный 40/40, без дублей и потерь). Плагины не создают таблиц и не меняют данные.
-* Удаление/отключение любого плагина сначала выключает кластер (страховка `turnOffClusterMode`, пишет `enabled:false`), супервизор возвращается к одному процессу; ручное восстановление NocoBase не требуется.
-* Очередь — «хотя бы один раз»: действия рабочих процессов должны быть идемпотентными.
+## Workflows and removing plugins
+* Triggers and workflows behave as in a single process (`tests/workflow.js`: no duplicates, no losses). The plugins create no tables and change no data.
+* Disabling/removing any plugin first switches the cluster off (`turnOffClusterMode` writes `enabled:false`); the supervisor returns to one process. No manual recovery is needed.
+* The queue is *at-least-once*: workflow actions should be idempotent.
 
-## Чек-лист для боевого сервера
-1. Резервная копия БД и `storage/`.
-2. Сначала проверить на копии/тестовом сервере (`tests/workflow.js`, самопроверка).
-3. Redis: `maxmemory-policy noeviction`, мониторинг; `max_connections` БД ≥ воркеры × пул.
-4. Включать в тихий час, начать с 2–3 воркеров.
-5. Откат: переключатель выключить в UI (или `{"enabled": false}` в `config.json`), либо `uninstall.sh`.
+## Production checklist
+1. Back up the database and `storage/`.
+2. Try on a copy / test server first (`tests/workflow.js`, self-test).
+3. Redis: `maxmemory-policy noeviction`, monitoring; database `max_connections` ≥ workers × pool size.
+4. Switch on in a quiet hour, start with 2–3 workers.
+5. Roll back: turn the switch off in the UI (or `{"enabled": false}` in `config.json`), or run `uninstall.sh`.
 
-## Управление
-* UI: Настройки → Многоядерный режим.
-* API (нужна роль с правом `pm.multicore`, у root оно есть): `POST /api/multicore:apply {"enabled":true,"workers":2}`, `GET /api/multicore:status`, `POST /api/multicore:selftest`, `GET /api/multicore:whoami`.
-* Файл настроек: `storage/multicore/config.json`; состояние лаунчера: `storage/multicore/status.json`. Лаунчер перечитывает конфиг по сообщению от воркера, по `SIGHUP` и раз в 10 секунд.
-* Откат без UI: поставьте `{"enabled": false}` в `config.json` (или удалите файл) — лаунчер вернёт один процесс.
+## Control
+* UI: Settings → Multi-core mode.
+* API (role with `pm.multicore`; root has it): `POST /api/multicore:apply {"enabled":true,"workers":2}`, `GET /api/multicore:status`, `POST /api/multicore:selftest`, `GET /api/multicore:whoami`.
+* Files: `storage/multicore/config.json` (settings), `storage/multicore/status.json` (supervisor state incl. balancer stats). The supervisor re-reads the config on a worker message, on `SIGHUP`, and every 10 s.
 
-## Переменные окружения
-| Переменная | По умолчанию | Смысл |
+## Environment variables
+| Variable | Default | Meaning |
 |---|---|---|
-| `REDIS_URL` | — | Redis для кластера (обязательна для включения). |
-| `MULTICORE_APP_ENTRY` | поиск `@nocobase/app` | Путь к `@nocobase/app/lib/index.js`. |
-| `MULTICORE_MAX_WORKERS` | `min(ядра×2, 32)`, не меньше 2 | Верхняя граница числа воркеров. |
-| `MULTICORE_QUICKSTART` | включён | `0` — не выполнять `start --quickstart` при первом старте. |
-| `MULTICORE_EXIT_GRACE_MS` | `10000` | Сколько воркер может завершаться до `process.exit`. |
-| `MULTICORE_REDIS_PREFIX` / `MULTICORE_NAMESPACE` | `mcore` / имя БД | Префикс ключей Redis; разные кластеры на одном Redis. |
-| `MULTICORE_STORAGE` / `MULTICORE_CONFIG` | `storage` | Где лежат `config.json` и `status.json`. |
+| `REDIS_URL` | — | Redis for the cluster (required to switch on). |
+| `MULTICORE_BALANCER` | on | `off` — plain shared-port round-robin instead of the least-busy balancer. |
+| `MULTICORE_APP_ENTRY` | auto-detected `@nocobase/app` | Path to `@nocobase/app/lib/index.js`. |
+| `MULTICORE_MAX_WORKERS` | `min(cores×2, 32)`, at least 2 | Upper bound for the worker count. |
+| `MULTICORE_QUICKSTART` | on | `0` — skip `start --quickstart` on first start. |
+| `MULTICORE_EXIT_GRACE_MS` | `10000` | How long a worker may take to exit before `process.exit`. |
+| `MULTICORE_REDIS_PREFIX` / `MULTICORE_NAMESPACE` | `mcore` / DB name | Redis key prefix; several clusters on one Redis. |
+| `MULTICORE_STORAGE` / `MULTICORE_CONFIG` | `storage` | Where `config.json` and `status.json` live. |
 
-## Сколько воркеров ставить
-Не больше числа физических ядер (минус ядра под БД и Redis, если они на том же сервере). Каждый воркер — полноценный процесс NocoBase: примерно 350–400 МБ памяти и своё подключение к БД.
+## How many workers
+No more than the number of physical cores (minus cores used by the database and Redis if they share the host). Each worker is a full NocoBase process: ≈350–400 MB RAM and its own DB connections.
 
-## Диагностика
-* `docker logs <контейнер> | grep '\[multicore\]'` — события лаунчера (запуск, замена, выход воркеров).
-* Вкладка показывает слот, PID, CPU, память и лаг цикла событий каждого воркера; значения берутся из heartbeat в Redis (раз в 5 с, TTL 20 с).
-* Самотест: pub/sub доходит до всех, блокировка исключает другой процесс, 20 задач очереди обработаны по одному разу.
+## Diagnostics
+* `docker logs <container> | grep '\[multicore\]'` — supervisor events (start, replace, exits, balancer).
+* The settings page shows slot, PID, CPU, memory, event-loop lag, requests in flight and served per worker.
+* Self-test: pub/sub reaches everyone, locks exclude other processes, 20 queue jobs run exactly once, worker ids are distinct.

@@ -1,6 +1,6 @@
 [English](README.md) · [Русский](README.ru.md) · **简体中文**
 
-# 队列适配器 — `@rosal-nb/plugin-queue-adapter-redis`
+# 队列适配器 — `@nb-multicore/plugin-queue-adapter-redis`
 
 _所有工作进程共用一个任务队列（Redis Streams）：每个任务只会被一个工作进程处理。_
 
@@ -33,4 +33,4 @@ NocoBase 把后台工作放入事件队列（`app.eventQueue`）：异步工作�
 “运行检查”：20 个测试任务 → 处理 20 个、重复 0 个，并分散到各工作进程。`node tests/workflow.js 600 24 0` 通过队列发送 600 个真实的工作流执行：期望 600/600。
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@rosal-nb/plugin-queue-adapter-redis` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-queue-adapter-redis` · v0.1.0 · AGPL-3.0-only

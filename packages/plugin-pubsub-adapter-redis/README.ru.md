@@ -1,6 +1,6 @@
 [English](README.md) · **Русский** · [简体中文](README.zh-CN.md)
 
-# Адаптер Pub/Sub — `@rosal-nb/plugin-pubsub-adapter-redis`
+# Адаптер Pub/Sub — `@nb-multicore/plugin-pubsub-adapter-redis`
 
 _Делает события видимыми для всех воркеров (Redis Pub/Sub)._
 
@@ -34,4 +34,4 @@ _Делает события видимыми для всех воркеров (
 Кнопка «Запустить проверку» на странице менеджера (pub/sub доходит до N из N воркеров), либо создайте коллекцию в интерфейсе и откройте её в другой вкладке браузера: она видна примерно через 1 с. Автоматизировано в `node tests/consistency.js`.
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@rosal-nb/plugin-pubsub-adapter-redis` · v0.1.0 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-pubsub-adapter-redis` · v0.1.0 · AGPL-3.0-only

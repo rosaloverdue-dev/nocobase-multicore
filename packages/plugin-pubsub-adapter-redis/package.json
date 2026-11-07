@@ -1,5 +1,5 @@
 {
-  "name": "@rosal-nb/plugin-pubsub-adapter-redis",
+  "name": "@nb-multicore/plugin-pubsub-adapter-redis",
   "version": "0.1.0",
   "displayName": "Multicore: Redis Pub/Sub adapter",
   "displayName.ru-RU": "Multicore: адаптер Pub/Sub Redis",

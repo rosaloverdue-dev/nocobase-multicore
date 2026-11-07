@@ -1,6 +1,6 @@
 **English** · [Русский](README.ru.md) · [简体中文](README.zh-CN.md)
 
-# Lock adapter — `@rosal-nb/plugin-lock-adapter-redis`
+# Lock adapter — `@nb-multicore/plugin-lock-adapter-redis`
 
 _Makes locks work between processes (Redis `SET NX PX`)._
 
@@ -35,4 +35,4 @@ Locks are short-lived keys with TTL: a crash leaves nothing behind that blocks t
 *Run check* on the manager page: a lock held by the page's worker must keep out every other worker (`lockblocked = N-1`, `lockleak = 0`). `node tests/workflow.js` and a 5-second schedule workflow check the practical effect (exactly one run per tick).
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@rosal-nb/plugin-lock-adapter-redis` · v0.1.0 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-lock-adapter-redis` · v0.1.0 · AGPL-3.0-only

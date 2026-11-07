@@ -1,6 +1,6 @@
 [English](README.md) · **Русский** · [简体中文](README.zh-CN.md)
 
-# Адаптер очереди — `@rosal-nb/plugin-queue-adapter-redis`
+# Адаптер очереди — `@nb-multicore/plugin-queue-adapter-redis`
 
 _Одна общая очередь задач для всех воркеров (Redis Streams): каждую задачу обрабатывает ровно один воркер._
 
@@ -33,4 +33,4 @@ NocoBase складывает фоновую работу в очередь со
 «Запустить проверку»: 20 тестовых задач → 20 обработано, 0 дубликатов, распределены по воркерам. `node tests/workflow.js 600 24 0` пропускает через очередь 600 настоящих выполнений рабочих процессов: ожидается 600/600.
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@rosal-nb/plugin-queue-adapter-redis` · v0.1.0 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-queue-adapter-redis` · v0.1.0 · AGPL-3.0-only

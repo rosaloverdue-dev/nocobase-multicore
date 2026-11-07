@@ -1,6 +1,6 @@
 [English](README.md) · [Русский](README.ru.md) · **简体中文**
 
-# 管理插件 — `@rosal-nb/plugin-multicore`
+# 管理插件 — `@nb-multicore/plugin-multicore`
 
 _带有多核模式开关、进程表格和集群自检的管理页面。_
 
@@ -38,4 +38,4 @@ curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@rosal-nb/plugin-multicore` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-multicore` · v0.1.0 · AGPL-3.0-only

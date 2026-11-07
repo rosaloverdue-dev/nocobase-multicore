@@ -7,19 +7,51 @@
  * between them, so a single port is served by several CPU cores without any load balancer.
  *
  * The number of workers and the mode (single | cluster) are read from storage/multicore/config.json, which the
- * NocoBase plugin `@rosal-nb/plugin-multicore` writes when an administrator flips the switch in the UI. The plugin then
+ * NocoBase plugin `@nb-multicore/plugin-multicore` writes when an administrator flips the switch in the UI. The plugin then
  * sends `{cmd:'multicore', type:'apply'}` over the cluster IPC channel; SIGHUP and a slow poll are fallbacks.
  */
 const cluster = require('node:cluster');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
 const { readConfig, statusPath, maxWorkers } = require('./config');
+const { Balancer } = require('./balancer');
 
 const CMD = 'multicore';
 const DRAIN_GRACE_MS = 30_000;
 const ROUTING_DELAY_MS = 1_500;
 const LISTEN_TIMEOUT_MS = 240_000;
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+/** Public address of the site: APP_PORT / APP_HOST from the environment or from .env (NocoBase reads them the same way). */
+function publicAddress(env) {
+  const out = { port: Number(env.APP_PORT) || 0, host: env.APP_HOST || '' };
+  if (!out.port || !out.host) {
+    try {
+      const text = fs.readFileSync(path.join(process.cwd(), '.env'), 'utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const m = line.match(/^\s*(APP_PORT|APP_HOST)\s*=\s*["']?([^"'#\s]*)/);
+        if (!m) continue;
+        if (m[1] === 'APP_PORT' && !out.port) out.port = Number(m[2]) || 0;
+        if (m[1] === 'APP_HOST' && !out.host) out.host = m[2];
+      }
+    } catch (e) {
+      // no .env
+    }
+  }
+  return { port: out.port || 13000, host: out.host || '0.0.0.0' };
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,10 +83,17 @@ class Supervisor {
     this.chain = Promise.resolve();
     this.lastReconcile = null;
     this.configMtime = 0;
+    // MULTICORE_BALANCER=off keeps the plain node:cluster round-robin on one shared port.
+    this.balancerOn = this.env.MULTICORE_BALANCER !== 'off';
+    this.balancer = this.balancerOn ? new Balancer({ log: this.log }) : null;
   }
 
   // ---------- public API ----------
   async start() {
+    if (this.balancerOn) {
+      // every worker listens on its own private port, so the kernel/primary must not share handles between them
+      cluster.schedulingPolicy = cluster.SCHED_NONE;
+    }
     cluster.setupPrimary({ exec: WORKER_ENTRY, args: ['start'], silent: false });
     cluster.on('message', (worker, message) => this.onMessage(worker, message));
     cluster.on('exit', (worker, code, signal) => this.onExit(worker, code, signal));
@@ -69,6 +108,12 @@ class Supervisor {
     this.log(
       `supervisor pid=${process.pid} entry=${this.entry} cpus=${os.cpus().length} maxWorkers=${maxWorkers(this.env)}`,
     );
+    if (this.balancerOn) {
+      const { port, host } = publicAddress(this.env);
+      this.publicPort = port;
+      const addr = await this.balancer.listen(port, host);
+      this.log(`balancer: least-busy routing on ${addr.address}:${addr.port} -> private worker ports`);
+    }
     await this.reconcile('boot');
   }
 
@@ -127,7 +172,7 @@ class Supervisor {
     this.log(`reconcile done: mode=${mode} workers=${live().length}`);
   }
 
-  workerEnv(id, mode, replacing) {
+  workerEnv(id, mode, replacing, port) {
     const env = {
       MULTICORE_SUPERVISED: '1',
       MULTICORE_MODE: mode,
@@ -142,6 +187,10 @@ class Supervisor {
         if (!this.env.CACHE_REDIS_URL) env.CACHE_REDIS_URL = url;
       }
     }
+    if (port) {
+      env.APP_PORT = String(port);
+      env.APP_HOST = '127.0.0.1';
+    }
     // Only one live process can own the default IPC socket of the NocoBase CLI (storage/gateway.sock).
     if (id !== 0 || replacing) {
       const dir = path.join(path.dirname(require('./config').configPath(this.env)), 'sockets');
@@ -155,13 +204,14 @@ class Supervisor {
     cluster.setupPrimary({ exec: WORKER_ENTRY, args: quickstart ? ['start', '--quickstart'] : ['start'], silent: false });
     const slot = { id, mode, state: 'starting', restarts: 0, startedAt: Date.now(), draining: false, worker: null, backoff: 1000 };
     this.slots.set(id, slot);
-    this.fork(slot, { replacing });
+    await this.fork(slot, { replacing });
     await this.waitListening(slot);
     return slot;
   }
 
-  fork(slot, { replacing = false } = {}) {
-    const worker = cluster.fork(this.workerEnv(slot.id, slot.mode, replacing));
+  async fork(slot, { replacing = false } = {}) {
+    slot.port = this.balancerOn ? await freePort() : null;
+    const worker = cluster.fork(this.workerEnv(slot.id, slot.mode, replacing, slot.port));
     slot.worker = worker;
     slot.state = 'starting';
     slot.startedAt = Date.now();
@@ -205,6 +255,8 @@ class Supervisor {
   async drain(slot) {
     slot.draining = true;
     slot.state = 'draining';
+    // 1) stop sending NEW requests to it and let the ones in flight finish
+    if (this.balancerOn) await this.balancer.remove(slot, DRAIN_GRACE_MS);
     const worker = slot.worker;
     if (!worker || worker.isDead()) {
       this.slots.delete(slot.id);
@@ -223,8 +275,8 @@ class Supervisor {
         clearTimeout(timer);
         resolve();
       });
-      // Stop the primary from routing NEW connections to this worker first: while NocoBase is shutting down it
-      // answers in-flight-at-the-wrong-moment requests with 500 ("connection manager was closed").
+      // Without the balancer: stop the primary from routing NEW connections to this worker first (while NocoBase is
+      // shutting down it answers in-flight-at-the-wrong-moment requests with 500 "connection manager was closed").
       try {
         worker.disconnect();
       } catch (e) {
@@ -245,6 +297,13 @@ class Supervisor {
   onMessage(worker, message) {
     if (message && message.cmd === '__listening') return;
     if (!message || message.cmd !== CMD) return;
+    if (message.type === 'hb') {
+      if (this.balancerOn) {
+        const s = this.slotOf(worker);
+        if (s) this.balancer.beat(s);
+      }
+      return;
+    }
     if (message.type === 'apply') {
       this.log(`apply requested by worker pid=${worker.process.pid}`);
       this.reconcile('ipc-apply');
@@ -254,11 +313,19 @@ class Supervisor {
     }
   }
 
-  onListening(worker) {
-    const slot = this.slots.get(worker.__slotId) || [...this.slots.values()].find((s) => s.worker === worker);
+  slotOf(worker) {
+    return [...this.slots.values()].find((s) => s.worker === worker) || this.slots.get(worker.__slotId);
+  }
+
+  onListening(worker, address) {
+    const slot = this.slotOf(worker);
     if (slot && slot.state !== 'draining') {
       slot.state = 'listening';
       slot.listeningAt = Date.now();
+      if (this.balancerOn && address && address.port === slot.port) {
+        this.balancer.add(slot, slot.port);
+        this.log(`slot ${slot.id}: ready, routing to 127.0.0.1:${slot.port}`);
+      }
     }
   }
 
@@ -266,6 +333,7 @@ class Supervisor {
     const slot = [...this.slots.values()].find((s) => s.worker === worker);
     if (!slot) return;
     this.log(`slot ${slot.id}: worker pid=${worker.process.pid} exited code=${code} signal=${signal}`);
+    if (this.balancerOn) this.balancer.remove(slot, 0);
     if (this.stopping || slot.draining) return;
     // Unexpected exit (crash, process.exit from NocoBase restart flows): respawn with exponential backoff.
     const healthy = slot.listeningAt && Date.now() - slot.listeningAt > 60_000;
@@ -277,7 +345,7 @@ class Supervisor {
     setTimeout(() => {
       if (this.stopping || slot.draining || this.slots.get(slot.id) !== slot) return;
       cluster.setupPrimary({ exec: WORKER_ENTRY, args: ['start'], silent: false });
-      this.fork(slot, { replacing: false });
+      this.fork(slot, { replacing: false }).catch((error) => this.log('respawn failed:', error && error.message));
     }, delay).unref();
   }
 
@@ -305,6 +373,7 @@ class Supervisor {
       desired: { mode, workers: count },
       config: cfg,
       lastReconcile: this.lastReconcile,
+      balancer: this.balancerOn ? { publicPort: this.publicPort, ...this.balancer.snapshot() } : { mode: 'round-robin' },
       workers: [...this.slots.values()]
         .sort((a, b) => a.id - b.id)
         .map((s) => ({
@@ -313,6 +382,7 @@ class Supervisor {
           state: s.state,
           mode: s.mode,
           restarts: s.restarts,
+          port: s.port || undefined,
           startedAt: new Date(s.startedAt).toISOString(),
         })),
     };
@@ -336,6 +406,7 @@ class Supervisor {
     this.log(`${signal}: shutting down workers`);
     const slots = [...this.slots.values()];
     await Promise.all(slots.map((s) => this.drain(s)));
+    if (this.balancerOn) this.balancer.close();
     this.writeStatus();
     process.exit(0);
   }
@@ -348,7 +419,7 @@ function run(options) {
   const supervisor = new Supervisor(options);
   // The IPC socket of the NocoBase gateway also emits 'listening' (unix socket: port -1); only the HTTP port counts.
   cluster.on('listening', (worker, address) => {
-    if (address && address.port > 0) supervisor.onListening(worker);
+    if (address && address.port > 0) supervisor.onListening(worker, address);
   });
   supervisor.start().catch((error) => {
     console.error('[multicore] fatal:', error);

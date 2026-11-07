@@ -1,0 +1,9 @@
+# Override for the stock NocoBase compose file: run the app under the multicore supervisor.
+#   docker compose -f docker-compose.yml -f docker/docker-compose.multicore.yml up -d app
+# Requires in the base file's `app` service:
+#   - REDIS_URL=redis://redis:6379/0   (and a redis service)
+#   - MULTICORE_APP_ENTRY=/app/nocobase/node_modules/@nocobase/app/lib/index.js
+#   - volumes: ./packages/supervisor:/multicore:ro  and  ./docker/entrypoint-multicore.sh:/multicore-entrypoint.sh:ro
+services:
+  app:
+    entrypoint: ["/bin/sh", "/multicore-entrypoint.sh"]

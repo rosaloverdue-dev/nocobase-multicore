@@ -280,6 +280,12 @@ export class PluginMulticore extends Plugin {
         supervisor = null;
       }
     }
+    // A worker replaced during a mode switch keeps its temporary slot id (1000+n) in its env; the supervisor knows the real one.
+    const slotByPid = new Map<number, number>((supervisor?.workers || []).map((w: any) => [w.pid, w.slot]));
+    for (const worker of workers as any[]) {
+      if (slotByPid.has(worker.pid)) worker.slot = String(slotByPid.get(worker.pid));
+    }
+    workers.sort((a: any, b: any) => Number(a.slot ?? 0) - Number(b.slot ?? 0) || a.pid - b.pid);
     const config = cfg.readConfig();
     return {
       self: this.identity(),

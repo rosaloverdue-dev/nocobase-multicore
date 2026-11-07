@@ -18,4 +18,14 @@ function load() {
   return process.env.MULTICORE_APP_ENTRY || path.resolve(process.cwd(), process.env.APP_PACKAGE_ROOT, 'lib/index.js');
 }
 
+// NocoBase stops the app on SIGTERM but leaves the process alive (open handles), which would make every rolling
+// replace wait for the supervisor's SIGKILL. Give the app time to stop gracefully, then exit.
+const EXIT_GRACE_MS = Number(process.env.MULTICORE_EXIT_GRACE_MS) || 10_000;
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    const timer = setTimeout(() => process.exit(0), EXIT_GRACE_MS);
+    timer.unref?.();
+  });
+}
+
 require(load());

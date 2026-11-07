@@ -1,0 +1,52 @@
+# Self-contained example: Postgres + Redis + NocoBase running under the multicore supervisor.
+# Copy .env.example to .env, fill the passwords, build the plugins (`node scripts/build.mjs`), then:
+#   mkdir -p storage/plugins/@rosal-nb && cp -r build/plugin-* storage/plugins/@rosal-nb/   # rename dirs: plugin-x -> plugin-x (same names)
+#   docker compose -f docker/docker-compose.example.yml up -d
+# First run: enable the five plugins (yarn nocobase pm add/enable, see docs/OPERATIONS.md), then Settings -> Multi-core mode.
+name: nocobase-multicore
+services:
+  pg:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nocobase
+      POSTGRES_DB: nocobase
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    command: postgres -c max_connections=200
+    volumes: ["./pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nocobase -d nocobase"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    volumes: ["./redisdata:/data"]
+  app:
+    image: nocobase/nocobase:2.2.33
+    restart: unless-stopped
+    init: true
+    depends_on:
+      pg: { condition: service_healthy }
+      redis: { condition: service_started }
+    ports: ["13000:80"]
+    entrypoint: ["/bin/sh", "/multicore-entrypoint.sh"]
+    env_file: [.env]
+    environment:
+      APP_ENV: production
+      DB_DIALECT: postgres
+      DB_HOST: pg
+      DB_PORT: "5432"
+      DB_DATABASE: nocobase
+      DB_USER: nocobase
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_URL: redis://redis:6379/0
+      MULTICORE_APP_ENTRY: /app/nocobase/node_modules/@nocobase/app/lib/index.js
+      INIT_ROOT_EMAIL: admin@example.com
+      INIT_ROOT_USERNAME: admin
+      INIT_ROOT_PASSWORD: ${ROOT_PASSWORD}
+    volumes:
+      - ./storage:/app/nocobase/storage
+      - ./packages/supervisor:/multicore:ro
+      - ./docker/entrypoint-multicore.sh:/multicore-entrypoint.sh:ro

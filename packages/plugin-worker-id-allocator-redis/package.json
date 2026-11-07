@@ -1,0 +1,24 @@
+{
+  "name": "@rosal-nb/plugin-worker-id-allocator-redis",
+  "version": "0.1.0",
+  "displayName": "Multicore: Redis worker id allocator",
+  "displayName.ru-RU": "Multicore: выдача worker-id через Redis",
+  "description": "Leases a unique snowflake worker id (0-31) to every process so generated primary keys never collide.",
+  "description.ru-RU": "Выдаёт каждому процессу уникальный worker-id (0-31) для snowflake-идентификаторов, чтобы первичные ключи не пересекались.",
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x"
+  }
+}

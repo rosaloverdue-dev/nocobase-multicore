@@ -1,0 +1,24 @@
+{
+  "name": "@rosal-nb/plugin-pubsub-adapter-redis",
+  "version": "0.1.0",
+  "displayName": "Multicore: Redis Pub/Sub adapter",
+  "displayName.ru-RU": "Multicore: адаптер Redis Pub/Sub",
+  "description": "Delivers NocoBase sync messages, cache invalidation and WebSocket events between several processes through Redis Pub/Sub.",
+  "description.ru-RU": "Доставляет сообщения синхронизации, сброс кэша и WebSocket-события между несколькими процессами через Redis Pub/Sub.",
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x"
+  }
+}

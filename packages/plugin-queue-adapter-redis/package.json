@@ -1,0 +1,24 @@
+{
+  "name": "@rosal-nb/plugin-queue-adapter-redis",
+  "version": "0.1.0",
+  "displayName": "Multicore: Redis queue adapter",
+  "displayName.ru-RU": "Multicore: адаптер очереди Redis",
+  "description": "Event queue on Redis Streams with a consumer group: every job is processed by exactly one process, stalled jobs are taken over.",
+  "description.ru-RU": "Очередь событий на Redis Streams с группой потребителей: каждое задание обрабатывает один процесс, зависшие задания перехватываются.",
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x"
+  }
+}

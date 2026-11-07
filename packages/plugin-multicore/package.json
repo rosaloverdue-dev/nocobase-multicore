@@ -1,0 +1,25 @@
+{
+  "name": "@rosal-nb/plugin-multicore",
+  "version": "0.1.0",
+  "displayName": "Multicore: multi-core switch",
+  "displayName.ru-RU": "Multicore: переключатель многоядерного режима",
+  "description": "Admin page with a switch and a worker counter, live worker table and a cluster self-test. Controls the nocobase-multicore supervisor.",
+  "description.ru-RU": "Страница настроек с переключателем и счётчиком воркеров, таблицей процессов и самопроверкой кластера. Управляет супервизором nocobase-multicore.",
+  "main": "dist/server/index.js",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "nocobase",
+    "cluster",
+    "multicore",
+    "redis"
+  ],
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ]
+  },
+  "peerDependencies": {
+    "@nocobase/server": "2.x",
+    "@nocobase/client": "2.x"
+  }
+}

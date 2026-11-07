@@ -23,14 +23,14 @@ NocoBase（社区版）只有一个 Node.js 进程，也就是**只用一个 CPU
 | 安装 | — | 一条命令（Docker Compose：自动带 Redis） |
 | 卸载 | — | 一条命令，恢复原生 NocoBase；移除插件会自动关闭集群 |
 
-> 状态 `0.1.1`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
+> 状态 `0.1.2`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
 
 ## 快速开始
 
 NocoBase 运行在 **Docker Compose** 中？一条命令（在 Docker 主机上执行；`<container>` 为 `docker ps` 中的应用容器名）：
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.1.tgz && cd nocobase-multicore-bundle-0.1.1
+tar xzf nocobase-multicore-bundle-0.1.2.tgz && cd nocobase-multicore-bundle-0.1.2
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -41,7 +41,7 @@ NocoBase 从项目目录运行（不用 Docker）？
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # 代替 `yarn start`
 ```
-请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.1.1`](releases/v0.1.1) 中，或自行构建：`node scripts/build.mjs`）。
+请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.1.2`](releases/v0.1.2) 中，或自行构建：`node scripts/build.mjs`）。
 
 ## 包含的内容
 
@@ -101,7 +101,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. 一条命令 — `install.sh`（推荐）
 
-从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.1.1`](releases/v0.1.1)）下载安装包，解压后运行：
+从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.1.2`](releases/v0.1.2)）下载安装包，解压后运行：
 
 ```bash
 ./install.sh --docker <容器名> [--workers N]               # Docker（Compose：自动配置 Redis 和入口）
@@ -129,9 +129,9 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 # 在 NocoBase 容器 / 项目目录内
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.1.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.2.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.1.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.2.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # 把 storage/plugins 链接到 node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 — 2026-11-07
+* **Worker-id lease: no more false "id owned by another process" exits.** After a long event-loop stall (a heavy request blocking a worker for a minute) several queued renew ticks ran concurrently: one reclaimed the id, the next saw the key holding the worker's *own* token and exited the worker, so in-flight requests got `Bad gateway: the application worker did not answer`. Renewals are now serialized and a key that holds our own token is never a conflict. Unit test added (16 tests).
+* Known limit (unchanged): a request that blocks one worker's event loop for a long time still stalls that worker; the balancer routes new requests to the other workers.
+
 ## 0.1.1 — 2026-11-07
 * **Worker affinity (sticky routing), optional and OFF by default.** *Settings → Multi-core mode → Worker affinity*: off / by login token / by client IP. Applied instantly without restarting workers. The preferred worker is skipped when it is stalled, draining or clearly busier than the least busy one. For plugins that keep state in process memory (for example an "online users" counter that kicked users out with 401 in cluster mode). See `docs/KNOWN-ISSUES.md`.
 * **Worker-id lease loss fixed.** The lease is now 60 s (was 30 s); if it expires the allocator takes the *same* id back; if another process already owns it, a supervised worker exits and the supervisor respawns it with a fresh id (no more two workers on one id). Unit tests with a fake Redis.

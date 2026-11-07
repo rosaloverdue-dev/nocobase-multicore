@@ -1,6 +1,6 @@
 [English](README.md) · **Русский** · [简体中文](README.zh-CN.md)
 
-# Плагин-менеджер — `@rosal-nb/plugin-multicore`
+# Плагин-менеджер — `@nb-multicore/plugin-multicore`
 
 _Страница настроек с переключателем многоядерного режима, таблицей процессов и самопроверкой кластера._
 
@@ -38,4 +38,4 @@ curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@rosal-nb/plugin-multicore` · v0.1.0 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-multicore` · v0.1.0 · AGPL-3.0-only

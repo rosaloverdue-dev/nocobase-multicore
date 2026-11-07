@@ -1,6 +1,6 @@
 [English](README.md) · **Русский** · [简体中文](README.zh-CN.md)
 
-# Адаптер блокировок — `@rosal-nb/plugin-lock-adapter-redis`
+# Адаптер блокировок — `@nb-multicore/plugin-lock-adapter-redis`
 
 _Блокировки работают между процессами (Redis `SET NX PX`)._
 
@@ -35,4 +35,4 @@ NocoBase использует блокировки (`app.lockManager`), чтоб
 «Запустить проверку»: блокировка, удерживаемая воркером страницы, не должна пускать остальные (`lockblocked = N-1`, `lockleak = 0`). Практический эффект проверяют `node tests/workflow.js` и рабочий процесс-расписание на 5 секунд (ровно один запуск за такт).
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@rosal-nb/plugin-lock-adapter-redis` · v0.1.0 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-lock-adapter-redis` · v0.1.0 · AGPL-3.0-only

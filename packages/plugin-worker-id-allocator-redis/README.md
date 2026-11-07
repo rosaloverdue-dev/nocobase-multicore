@@ -1,6 +1,6 @@
 **English** · [Русский](README.ru.md) · [简体中文](README.zh-CN.md)
 
-# Worker-id allocator — `@rosal-nb/plugin-worker-id-allocator-redis`
+# Worker-id allocator — `@nb-multicore/plugin-worker-id-allocator-redis`
 
 _Gives every process its own id so that two workers never create the same record id._
 
@@ -37,4 +37,4 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@rosal-nb/plugin-worker-id-allocator-redis` · v0.1.0 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-worker-id-allocator-redis` · v0.1.0 · AGPL-3.0-only

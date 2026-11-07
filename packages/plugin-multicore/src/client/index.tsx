@@ -31,6 +31,8 @@ const DICT: Record<string, Record<string, string>> = {
     cpu: 'CPU, %',
     rss: 'Память, МБ',
     lag: 'Лаг цикла, мс',
+    inflight: 'Запросов в работе',
+    served: 'Обработано запросов',
     host: 'Хост',
     instance: 'ID экземпляра',
     you: 'вы здесь',
@@ -87,6 +89,8 @@ const DICT: Record<string, Record<string, string>> = {
     cpu: 'CPU, %',
     rss: 'Memory, MB',
     lag: 'Loop lag, ms',
+    inflight: 'Requests in flight',
+    served: 'Requests served',
     host: 'Host',
     instance: 'Instance ID',
     you: 'you are here',
@@ -118,12 +122,70 @@ const DICT: Record<string, Record<string, string>> = {
     disabledState: 'disabled',
     missingState: 'not installed',
   },
+  zh: {
+    title: '多核模式',
+    subtitle: '让 NocoBase 运行在多个 CPU 核心上：多个工作进程共用一个端口和共享的 Redis。',
+    notSupervised: '应用没有通过 nocobase-multicore 启动器运行，因此该开关无法启动工作进程。请参阅 docs/OPERATIONS.md。',
+    redisDown: 'Redis 不可用',
+    redisOk: 'Redis',
+    adaptersMissing: '适配器插件未全部启用',
+    control: '控制',
+    enable: '启用多核模式',
+    workers: '工作进程数量',
+    apply: '应用',
+    applying: '正在应用…',
+    current: '当前状态',
+    processes: '个进程',
+    cpus: '服务器 CPU 核心数',
+    single: '单核模式',
+    cluster: '多核模式',
+    workersTable: '工作进程',
+    slot: '槽位',
+    pid: 'PID',
+    state: '状态',
+    uptime: '运行时间',
+    cpu: 'CPU，%',
+    rss: '内存，MB',
+    lag: '事件循环延迟，毫秒',
+    inflight: '处理中的请求',
+    served: '已处理请求数',
+    host: '主机',
+    instance: '实例 ID',
+    you: '当前进程',
+    selftest: '集群自检',
+    selftestHint: '实时检查：pub/sub 消息是否送达每个工作进程、跨进程的锁是否生效、每个队列任务是否恰好处理一次、每个进程的 ID 是否唯一。',
+    run: '运行检查',
+    running: '检查中…',
+    pass: '一切正常',
+    fail: '发现问题',
+    pubsub: 'Pub/Sub',
+    lock: '锁',
+    queue: '队列',
+    workerId: '工作进程 ID',
+    cache: '缓存',
+    active: '已生效',
+    inactive: '未生效',
+    adapters: '适配器',
+    plugin: '插件',
+    saved: '设置已保存',
+    error: '错误',
+    received: '已收到',
+    blocked: '已拦截',
+    leaked: '泄漏',
+    processed: '已处理',
+    duplicates: '重复',
+    distribution: '各工作进程的分布',
+    restartNote: '切换是滚动进行的：先启动新的工作进程，再停止旧的，最多需要一分钟。',
+    enabledState: '已启用',
+    disabledState: '已禁用',
+    missingState: '未安装',
+  },
 };
 
 function useT() {
   const app = useApp();
   const lang = String((app as any)?.i18n?.language || 'en').toLowerCase();
-  const dict = lang.startsWith('ru') ? DICT.ru : DICT.en;
+  const dict = lang.startsWith('ru') ? DICT.ru : lang.startsWith('zh') ? DICT.zh : DICT.en;
   return (key: string) => dict[key] || key;
 }
 
@@ -215,6 +277,8 @@ const MulticoreSettings: React.FC = () => {
     { title: t('cpu'), dataIndex: 'cpuPercent', width: 90 },
     { title: t('rss'), dataIndex: 'rssMb', width: 110 },
     { title: t('lag'), dataIndex: 'loopLagMs', width: 120 },
+    { title: t('inflight'), dataIndex: 'inflight', width: 120 },
+    { title: t('served'), dataIndex: 'served', width: 130 },
     { title: t('instance'), dataIndex: 'instanceId', width: 110 },
     { title: t('host'), dataIndex: 'hostname' },
   ];
@@ -294,10 +358,17 @@ const MulticoreSettings: React.FC = () => {
   );
 };
 
+function menuTitle(lang: string) {
+  const l = lang.toLowerCase();
+  if (l.startsWith('ru')) return 'Многоядерный режим';
+  if (l.startsWith('zh')) return '多核模式';
+  return 'Multi-core mode';
+}
+
 export class PluginMulticoreClient extends Plugin {
   async load() {
     this.app.pluginSettingsManager.add('multicore', {
-      title: 'Multi-core mode',
+      title: menuTitle(String((this.app as any)?.i18n?.language || 'en')),
       icon: 'ThunderboltOutlined',
       Component: MulticoreSettings,
       aclSnippet: 'pm.multicore',

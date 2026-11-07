@@ -1,6 +1,6 @@
 **English** · [Русский](README.ru.md) · [简体中文](README.zh-CN.md)
 
-# Manager plugin — `@rosal-nb/plugin-multicore`
+# Manager plugin — `@nb-multicore/plugin-multicore`
 
 _The admin page with the multi-core switch, the worker table and the cluster self-test._
 
@@ -39,4 +39,4 @@ curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@rosal-nb/plugin-multicore` · v0.1.0 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-multicore` · v0.1.0 · AGPL-3.0-only

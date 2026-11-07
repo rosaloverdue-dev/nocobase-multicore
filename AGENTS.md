@@ -1,6 +1,6 @@
 # AGENTS.md — manifest for AI agents working on this repository
 
-Read this file first. It tells you what the project is, how it is built, how to test it, what is verified and what is not, and what to do next. Humans: see `README.md` (Russian) and `docs/`.
+Read this file first. It tells you what the project is, how it is built, how to test it, what is verified and what is not, and what to do next. Humans: see `README.md` and `docs/`.
 
 ## 1. What this repository is
 
@@ -8,18 +8,18 @@ Read this file first. It tells you what the project is, how it is built, how to 
 
 NocoBase (community edition) is a single Node.js process. Its open core already contains pluggable adapters for everything that must be shared between processes, but the default adapters are in-memory. This repo supplies **Redis-backed adapters as NocoBase plugins**, a **supervisor** that runs N worker processes sharing one port (`node:cluster`), and a **manager plugin** with the UI and API. No NocoBase core code is patched.
 
-Licence: AGPL-3.0-only. Package scope: `@rosal-nb/*`. Target: NocoBase `2.x` (developed and tested on `2.2.33`, Docker image `nocobase/nocobase`).
+Licence: AGPL-3.0-only. Package scope: `@nb-multicore/*`. Target: NocoBase `2.x` (developed and tested on `2.2.33`, Docker image `nocobase/nocobase`).
 
 ## 2. Components
 
 | Path | Package | Role |
 |---|---|---|
 | `packages/supervisor` | `nocobase-multicore-supervisor` (plain Node, no NocoBase imports) | `bin/nocobase-multicore.js` launcher = cluster **primary**. Forks workers, rolling replace on mode change, scale up/down, respawn with backoff, writes `storage/multicore/status.json`. `lib/worker-entry.js` is what each worker runs: it executes the NocoBase CLI `initEnv()` and loads the app entry. `lib/config.js` is the config-file format, shared with the manager plugin. |
-| `packages/plugin-pubsub-adapter-redis` | `@rosal-nb/plugin-pubsub-adapter-redis` | `app.pubSubManager.setAdapter(...)`. Cross-process events (cache invalidation, metadata sync messages, ...). |
-| `packages/plugin-lock-adapter-redis` | `@rosal-nb/plugin-lock-adapter-redis` | `app.lockManager.registerAdapter('redis', ...)` and makes it the default. `SET NX PX` + Lua release/extend, heartbeat renewal. |
-| `packages/plugin-queue-adapter-redis` | `@rosal-nb/plugin-queue-adapter-redis` | `app.eventQueue.setAdapter(...)`. Redis Streams + consumer group; each message goes to exactly one worker; stalled messages are reclaimed (`XAUTOCLAIM`). At-least-once. |
-| `packages/plugin-worker-id-allocator-redis` | `@rosal-nb/plugin-worker-id-allocator-redis` | `app.workerIdAllocator.setAdapter(...)`. 32 leased snowflake worker ids so two workers never generate the same id. |
-| `packages/plugin-multicore` | `@rosal-nb/plugin-multicore` | The manager: ACL snippet `pm.multicore`, resource `multicore` (`status`, `apply`, `selftest`, `whoami`), per-worker heartbeat to Redis, and the client settings page (ru/en). |
+| `packages/plugin-pubsub-adapter-redis` | `@nb-multicore/plugin-pubsub-adapter-redis` | `app.pubSubManager.setAdapter(...)`. Cross-process events (cache invalidation, metadata sync messages, ...). |
+| `packages/plugin-lock-adapter-redis` | `@nb-multicore/plugin-lock-adapter-redis` | `app.lockManager.registerAdapter('redis', ...)` and makes it the default. `SET NX PX` + Lua release/extend, heartbeat renewal. |
+| `packages/plugin-queue-adapter-redis` | `@nb-multicore/plugin-queue-adapter-redis` | `app.eventQueue.setAdapter(...)`. Redis Streams + consumer group; each message goes to exactly one worker; stalled messages are reclaimed (`XAUTOCLAIM`). At-least-once. |
+| `packages/plugin-worker-id-allocator-redis` | `@nb-multicore/plugin-worker-id-allocator-redis` | `app.workerIdAllocator.setAdapter(...)`. 32 leased snowflake worker ids so two workers never generate the same id. |
+| `packages/plugin-multicore` | `@nb-multicore/plugin-multicore` | The manager: ACL snippet `pm.multicore`, resource `multicore` (`status`, `apply`, `selftest`, `whoami`), per-worker heartbeat to Redis, and the client settings page (en/ru/zh). |
 | `packages/shared` | (bundled into each plugin) | env helpers, `skipReason()`. |
 | `scripts/build.mjs` | | esbuild-based builder. Produces `build/<plugin>/` (ready plugin dir) and `build/*.tgz`. |
 | `tests/` | | Black-box probes run against a live stand: `consistency.js`, `bench.js`. |
@@ -30,9 +30,10 @@ Licence: AGPL-3.0-only. Package scope: `@rosal-nb/*`. Target: NocoBase `2.x` (de
 
 ```
 nocobase-multicore (supervisor, node:cluster primary, no NocoBase code)
-  ├─ worker slot 0  ── NocoBase app ─┐
-  ├─ worker slot 1  ── NocoBase app ─┼─ share ONE listening port (cluster round-robin)
-  └─ worker slot N  ── NocoBase app ─┘
+  ├─ balancer (lib/balancer.js): owns the public port, routes each request / WebSocket to the least busy worker
+  ├─ worker slot 0  ── NocoBase app (private 127.0.0.1 port) ─┐
+  ├─ worker slot 1  ── NocoBase app (private 127.0.0.1 port) ─┼─ SCHED_NONE, no shared port
+  └─ worker slot N  ── NocoBase app (private 127.0.0.1 port) ─┘
           │ all of them talk through Redis: pub/sub, locks, queue, worker ids, cache
 ```
 
@@ -54,16 +55,16 @@ node scripts/build.mjs            # readable bundles
 MINIFY=1 node scripts/build.mjs   # small server bundles (used when the only transfer channel is text)
 ```
 
-Output: `build/plugin-*/` (drop into `storage/plugins/@rosal-nb/<name>/`), `build/rosal-nb-plugin-*-<version>.tgz`, `build/nocobase-multicore-supervisor-<version>.tgz`. The client bundle is wrapped in a UMD/AMD shim with externals `react`, `antd`, `@nocobase/client`, `@ant-design/icons`. `dist/externalVersion.js` reads versions from the host install, so the plugin-manager compatibility check passes for any 2.x host.
+Output: `build/plugin-*/` (drop into `storage/plugins/@nb-multicore/<name>/`), `build/nb-multicore-plugin-*-<version>.tgz`, `build/nocobase-multicore-supervisor-<version>.tgz`. The client bundle is wrapped in a UMD/AMD shim with externals `react`, `antd`, `@nocobase/client`, `@ant-design/icons`. `dist/externalVersion.js` reads versions from the host install, so the plugin-manager compatibility check passes for any 2.x host.
 
-There is no unit-test runner wired up and **CI is not available** (the owner has no CI minutes). Verification is done on a live stand (below). Do not add a workflow that cannot run.
+There is no unit-test runner wired up and **CI is not available** (no CI runners are configured). Unit tests: `npm run test:unit` (balancer). Everything else is verified on a live stand (below). Do not add a workflow that cannot run.
 
 ## 5. How to test (the stand)
 
-A throw-away stack: Postgres 16 + Redis 7 + `nocobase/nocobase:2.2.33`, with the plugin dirs mounted/copied into `storage/plugins/@rosal-nb/`. See `docker/` and `docs/OPERATIONS.md` for the exact compose files.
+A throw-away stack: Postgres 16 + Redis 7 + `nocobase/nocobase:2.2.33`, with the plugin dirs mounted/copied into `storage/plugins/@nb-multicore/`. See `docker/` and `docs/OPERATIONS.md` for the exact compose files.
 
 1. Start stock (single process), `pm add` + `pm enable` the five plugins:
-   `yarn nocobase pm add @rosal-nb/<name>` then `yarn nocobase pm enable @rosal-nb/<name> ...`.
+   `yarn nocobase pm add @nb-multicore/<name>` then `yarn nocobase pm enable @nb-multicore/<name> ...`.
 2. Restart with `docker-compose.multicore.yml` (entrypoint replaced; supervisor runs).
 3. Sign in (`POST /api/auth:signIn`) and call `POST /api/multicore:apply {"enabled":true,"workers":2}`.
 4. `POST /api/multicore:selftest` must return `ok:true` (pub/sub reaches every worker, lock excludes, 20 queue jobs processed once each).
@@ -72,7 +73,7 @@ A throw-away stack: Postgres 16 + Redis 7 + `nocobase/nocobase:2.2.33`, with the
 Results of the runs done so far are in `docs/TEST-REPORT.md`. Re-run them after any change to adapters or the supervisor.
 
 ### Hard safety rules for the lab
-* Only ever use the dedicated development server named in the owner's instructions. **Never touch any production server or its containers.** Use a separate docker network, loopback-only ports and memory limits.
+* Only ever use a dedicated development/test server. **Never touch any production server or its containers.** Use a separate docker network, loopback-only ports and memory limits.
 * Verify file transfers with `sha256sum`.
 
 ## 6. Verified vs. not verified
@@ -86,7 +87,9 @@ Known upstream behaviour (not caused by this repo, reproducible in single-proces
 
 Also verified: workflow collection + schedule triggers and create-record node (`tests/workflow.js`), safeguard auto-off, uninstall while cluster is on, `install.sh`/`uninstall.sh` in Docker.
 
-Not verified / open: browser rendering of the settings page, `install.sh --local` on a real local install, file uploads with local storage across workers (needs shared volume), WebSocket/SSE sticky behaviour, Redis outage behaviour, long-running soak, NocoBase versions other than 2.2.33.
+Also verified: `install.sh --docker` (Compose, Redis auto) and `--local`, the settings page in en/ru/zh in a headless browser, the least-busy balancer.
+
+Not verified / open: file uploads with local storage across workers (needs shared volume), WebSocket/SSE sticky behaviour, Redis outage behaviour, long-running soak, NocoBase versions other than 2.2.33.
 
 ## 7. Conventions and gotchas for editing
 
@@ -97,8 +100,9 @@ Not verified / open: browser rendering of the settings page, `install.sh --local
 * Anything that changes the worker env must be reflected in `Supervisor.workerEnv()` and documented in `docs/OPERATIONS.md`.
 * A worker must exit on SIGTERM: NocoBase stops the app but leaves handles open, so `worker-entry.js` installs a timer that calls `process.exit(0)` after `MULTICORE_EXIT_GRACE_MS` (default 10 s). Do not remove it, or every rolling replace waits for the SIGKILL.
 * Non-zero worker slots (and replacement workers) get a unique `SOCKET_PATH` because the NocoBase gateway IPC socket is owned by one process.
-* **Every plugin needs `dist/client/index.js`**, even server-only ones: the NocoBase web app loads the client bundle of every enabled plugin through requirejs, and a 404 stops the whole UI with `Script error for "@rosal-nb/..."`. `scripts/build.mjs` generates a minimal stub for the plugins without `src/client`.
-* Keep user-facing text bilingual (ru/en) in the client bundle; docs for humans are in Russian, this file and code comments in English.
+* NocoBase 2.2.33: `pm add <name>` does nothing for plugins already in `storage/plugins`; the installer runs `yarn nocobase postinstall` (symlinks into node_modules) and then `pm enable` (creates the DB rows).
+* **Every plugin needs `dist/client/index.js`**, even server-only ones: the NocoBase web app loads the client bundle of every enabled plugin through requirejs, and a 404 stops the whole UI with `Script error for "@nb-multicore/..."`. `scripts/build.mjs` generates a minimal stub for the plugins without `src/client`.
+* Keep user-facing text bilingual (en/ru/zh) in the client bundle; user docs are in English with Russian and Chinese translations; this file and code comments are in English.
 
 ## 8. What to do next (backlog, most valuable first)
 
@@ -110,8 +114,7 @@ Not verified / open: browser rendering of the settings page, `install.sh --local
 6. Support other NocoBase minor versions: CI matrix when CI becomes available.
 7. Publish the plugins to an npm registry (currently distributed as `.tgz` GitHub release assets).
 
-## 9. Delivery workflow used by the owner's agents
+## 9. Delivery workflow
 
-* Work on a branch, open a **pull request yourself** (use `gh api repos/<owner>/<repo>/pulls` if `gh pr create` is blocked) and give the owner the link; the owner merges.
+* Work on a branch, open a **pull request yourself** (use `gh api repos/<owner>/<repo>/pulls` if `gh pr create` is blocked) and share the link; a maintainer merges.
 * Releases are created by the agent with the built `.tgz` files attached.
-* The repository is **private**; keep it so unless the owner says otherwise.

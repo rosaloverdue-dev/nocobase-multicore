@@ -171,7 +171,7 @@ for (const f of ['install.sh', 'uninstall.sh']) {
 }
 fs.writeFileSync(
   path.join(bundleDir, 'INSTALL.txt'),
-  `nocobase-multicore ${supPkg.version}\n\nDocker:  ./install.sh --docker <container-name>\nLocal:   ./install.sh --local <nocobase-project-dir>\nRemove:  ./uninstall.sh --docker <container-name>\n\nEach rosal-nb-plugin-*.tgz can also be uploaded in NocoBase: Settings -> Plugin manager -> Add -> Upload.\nFull docs (EN/ZH/RU): https://github.com/rosaloverdue-dev/nocobase-multicore\n`,
+  `nocobase-multicore ${supPkg.version}\n\nDocker:  ./install.sh --docker <container-name>\nLocal:   ./install.sh --local <nocobase-project-dir>\nRemove:  ./uninstall.sh --docker <container-name>\n\nEach nb-multicore-plugin-*.tgz can also be uploaded in NocoBase: Settings -> Plugin manager -> Add -> Upload.\nFull docs (EN/ZH/RU): https://github.com/rosaloverdue-dev/nocobase-multicore\n`,
 );
 const bundleTgz = path.join(buildDir, `${bundleName}.tgz`);
 execFileSync('tar', ['czf', bundleTgz, '-C', path.join(buildDir, 'bundle'), bundleName]);

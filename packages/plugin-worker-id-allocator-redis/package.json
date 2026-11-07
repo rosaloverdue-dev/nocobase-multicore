@@ -1,5 +1,5 @@
 {
-  "name": "@rosal-nb/plugin-worker-id-allocator-redis",
+  "name": "@nb-multicore/plugin-worker-id-allocator-redis",
   "version": "0.1.0",
   "displayName": "Multicore: Redis worker id allocator",
   "displayName.ru-RU": "Multicore: выдача id воркеров через Redis",

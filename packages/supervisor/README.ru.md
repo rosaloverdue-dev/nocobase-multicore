@@ -51,4 +51,4 @@ docker logs <контейнер> 2>&1 | grep '\[multicore\]'           # соб�
 ```
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@rosal-nb/multicore-supervisor` · v0.1.0 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/multicore-supervisor` · v0.1.0 · AGPL-3.0-only

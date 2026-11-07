@@ -23,7 +23,7 @@ NocoBase (community edition) is a single Node.js process — **one CPU core**, h
 | Install | — | one command (Docker Compose: Redis included) |
 | Remove | — | one command, back to stock NocoBase; removing a plugin switches the cluster off by itself |
 
-> Status `0.1.0` — tested on NocoBase **2.2.33** (see [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). AI agents continuing the work: start with [AGENTS.md](AGENTS.md).
+> Status `0.1.1` — tested on NocoBase **2.2.33** (see [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). AI agents continuing the work: start with [AGENTS.md](AGENTS.md).
 
 ## Contents
 [Quick start](#quick-start) · [How it works](#how-it-works) · [Load balancing](#load-balancing) · [Requirements](#requirements) · [Installation methods](#installation-methods) · [Launch methods](#launch-methods) · [Admin page](#admin-page) · [Configuration](#configuration-reference) · [Tests](#test-commands) · [FAQ](#workflows-safety-and-removal-faq) · [Troubleshooting](#troubleshooting) · [The parts in detail](#the-parts-in-detail)
@@ -33,7 +33,7 @@ NocoBase (community edition) is a single Node.js process — **one CPU core**, h
 NocoBase runs in **Docker Compose**? One command (run it on the Docker host; `<container>` is the NocoBase app container name from `docker ps`):
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+tar xzf nocobase-multicore-bundle-0.1.1.tgz && cd nocobase-multicore-bundle-0.1.1
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -44,7 +44,7 @@ NocoBase runs from a project folder (no Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # instead of `yarn start`
 ```
-Download `nocobase-multicore-bundle-<version>.tgz` from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (the same files are in [`releases/v0.1.0`](releases/v0.1.0), or build them: `node scripts/build.mjs`).
+Download `nocobase-multicore-bundle-<version>.tgz` from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (the same files are in [`releases/v0.1.1`](releases/v0.1.1), or build them: `node scripts/build.mjs`).
 
 ## What is inside
 
@@ -102,7 +102,7 @@ Live numbers (requests in flight / served per worker) are in the admin page and 
 
 ### 1. One command — `install.sh` (recommended)
 
-Download the bundle from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (or from [`releases/v0.1.0`](releases/v0.1.0)), unpack, run:
+Download the bundle from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (or from [`releases/v0.1.1`](releases/v0.1.1)), unpack, run:
 
 ```bash
 ./install.sh --docker <container-name> [--workers N]      # Docker (Compose: Redis + entrypoint are configured for you)
@@ -130,9 +130,9 @@ For a Docker Compose container the script reads the compose labels, writes `dock
 # inside the NocoBase container / project directory
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.1.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.1.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # links storage/plugins into node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore

@@ -34,4 +34,4 @@ NocoBase 使用锁（`app.lockManager`）避免两个操作同时执行——例
 管理页面“运行检查”：页面所在工作进程持有的锁必须挡住其他所有工作进程（`lockblocked = N-1`，`lockleak = 0`）。实际效果可通过 `node tests/workflow.js` 以及一个 5 秒间隔的定时工作流验证（每个周期恰好运行一次）。
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-lock-adapter-redis` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-lock-adapter-redis` · v0.1.1 · AGPL-3.0-only

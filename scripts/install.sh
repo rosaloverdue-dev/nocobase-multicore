@@ -146,6 +146,16 @@ if [ "$MODE" = docker ]; then
     } > "$OVERRIDE"
     echo "   wrote $OVERRIDE (Redis: $REDIS_URL_USED)"
     FILES=""; OLDIFS=$IFS; IFS=,; for f in $CONFIG_FILES; do [ "$f" = "$OVERRIDE" ] || FILES="$FILES -f $f"; done; IFS=$OLDIFS
+    # Make a plain `docker compose up -d` / `restart` / `pull` keep using the override: without this, compose reads only
+    # docker-compose.yml and silently drops the supervisor entrypoint and Redis. An existing COMPOSE_FILE is never touched.
+    CF=""; OLDIFS=$IFS; IFS=,; for f in $CONFIG_FILES; do [ "$f" = "$OVERRIDE" ] || CF="${CF:+$CF:}$f"; done; IFS=$OLDIFS
+    if grep -qs '^COMPOSE_FILE=' "$PROJECT_DIR/.env"; then
+      echo "   $PROJECT_DIR/.env already sets COMPOSE_FILE - left untouched; make sure it lists docker-compose.multicore.yml"
+    else
+      [ -s "$PROJECT_DIR/.env" ] && [ -n "$(tail -c1 "$PROJECT_DIR/.env")" ] && echo >> "$PROJECT_DIR/.env"
+      printf '# added by nocobase-multicore install.sh (removed by uninstall.sh)\nCOMPOSE_FILE=%s:%s\n' "$CF" "$OVERRIDE" >> "$PROJECT_DIR/.env"
+      echo "   COMPOSE_FILE added to $PROJECT_DIR/.env, so a plain 'docker compose up -d' keeps the supervisor"
+    fi
     echo "   recreating '$SERVICE' (a short restart of the site)..."
     # shellcheck disable=SC2086
     docker compose --project-directory "$PROJECT_DIR" $FILES -f "$OVERRIDE" up -d --no-build $( [ -z "${EXISTING_REDIS}${REDIS_URL_ARG}" ] && echo multicore-redis ) "$SERVICE" >/dev/null 2>&1 \

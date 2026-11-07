@@ -34,4 +34,4 @@ Unfinished jobs live in Redis. When you switch the cluster off, the stock in-mem
 *Run check*: 20 test jobs → 20 processed, 0 duplicates, spread over workers. `node tests/workflow.js 600 24 0` sends 600 real workflow executions through the queue: expect 600/600.
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-queue-adapter-redis` · v0.1.0 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-queue-adapter-redis` · v0.1.1 · AGPL-3.0-only

@@ -23,14 +23,14 @@ NocoBase (community) — это один процесс Node.js, то есть *
 | Установка | — | одна команда (Docker Compose: Redis включён) |
 | Удаление | — | одна команда, снова обычный NocoBase; удаление плагина само выключает кластер |
 
-> Статус `0.1.0` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
+> Статус `0.1.1` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
 
 ## Быстрый старт
 
 NocoBase в **Docker Compose**? Одна команда (на хосте Docker; `<container>` — имя контейнера приложения из `docker ps`):
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.0.tgz && cd nocobase-multicore-bundle-0.1.0
+tar xzf nocobase-multicore-bundle-0.1.1.tgz && cd nocobase-multicore-bundle-0.1.1
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -41,7 +41,7 @@ NocoBase запущен из папки проекта (без Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # вместо `yarn start`
 ```
-Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.1.0`](releases/v0.1.0), или соберите: `node scripts/build.mjs`).
+Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.1.1`](releases/v0.1.1), или соберите: `node scripts/build.mjs`).
 
 ## Что внутри
 
@@ -99,7 +99,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. Одна команда — `install.sh` (рекомендуется)
 
-Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.1.0`](releases/v0.1.0)), распакуйте и запустите:
+Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.1.1`](releases/v0.1.1)), распакуйте и запустите:
 
 ```bash
 ./install.sh --docker <имя-контейнера> [--workers N]       # Docker (Compose: Redis и entrypoint настраиваются сами)
@@ -127,9 +127,9 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 # внутри контейнера NocoBase / папки проекта
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.1.1.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.0.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.1.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # связывает storage/plugins с node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore

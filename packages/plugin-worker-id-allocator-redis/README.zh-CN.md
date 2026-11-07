@@ -37,4 +37,4 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 ```
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-worker-id-allocator-redis` · v0.1.0 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-worker-id-allocator-redis` · v0.1.1 · AGPL-3.0-only

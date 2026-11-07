@@ -39,4 +39,4 @@ curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-multicore` · v0.1.0 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-multicore` · v0.1.1 · AGPL-3.0-only

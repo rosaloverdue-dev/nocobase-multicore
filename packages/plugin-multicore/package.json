@@ -1,6 +1,6 @@
 {
   "name": "@nb-multicore/plugin-multicore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "displayName": "Multicore: multi-core switch",
   "displayName.ru-RU": "Multicore: переключатель многоядерного режима",
   "displayName.zh-CN": "Multicore：多核模式开关",

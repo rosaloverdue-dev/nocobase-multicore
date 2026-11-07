@@ -10,6 +10,7 @@
   <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
 </p>
 <p align="center"><sub>Независимый проект сообщества, не связан с NocoBase и не одобрен NocoBase.</sub></p>
+<p align="center"><a href="https://boosty.to/lipsept/donate"><img alt="Поддержать проект на Boosty" src="https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82-Boosty-F15F2C?style=flat"></a></p>
 
 NocoBase (community) — это один процесс Node.js, то есть **одно ядро процессора**, каким бы большим ни был сервер. `nocobase-multicore` запускает его как **несколько рабочих процессов за одним портом**, распределяет запросы по загрузке и переносит всё, что должно быть общим (события, блокировки, очередь задач, id записей, кэш), в Redis. Ядро NocoBase **не патчится**: это пять обычных плагинов и небольшой лаунчер, плюс страница *Настройки → Многоядерный режим*.
 
@@ -425,6 +426,12 @@ NocoBase генерирует первичные ключи многих таб�
 curl -s -X POST $BASE/api/multicore:selftest -H "Authorization: Bearer $TOKEN"   # checks.workerIds.ok должно быть true
 docker exec <redis> redis-cli --scan --pattern '*:wid:*'                           # по ключу на каждый работающий воркер
 ```
+
+## Поддержать проект
+
+nocobase-multicore — бесплатный проект с открытым кодом. Если он сэкономил вам время или деньги, вы можете поддержать разработку пожертвованием. Это добровольно и не даёт дополнительных прав или приоритетной поддержки.
+
+<p align="center"><a href="https://boosty.to/lipsept/donate"><img alt="Пожертвовать на Boosty" src="https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D1%82%D1%8C-%D0%BD%D0%B0%20Boosty-F15F2C?style=for-the-badge"></a></p>
 
 ## Дополнительно
 

@@ -10,6 +10,7 @@
   <img alt="languages" src="https://img.shields.io/badge/UI-en%20%C2%B7%20ru%20%C2%B7%20zh--CN-lightgrey">
 </p>
 <p align="center"><sub>独立的社区项目，与 NocoBase 无关联，也未获得 NocoBase 认可。</sub></p>
+<p align="center"><a href="https://boosty.to/lipsept/donate"><img alt="在 Boosty 上支持本项目" src="https://img.shields.io/badge/%E6%94%AF%E6%8C%81%E9%A1%B9%E7%9B%AE-Boosty-F15F2C?style=flat"></a></p>
 
 NocoBase（社区版）只有一个 Node.js 进程，也就是**只用一个 CPU 核心**，服务器再大也一样。`nocobase-multicore` 把它启动为**同一端口后的多个工作进程**，按负载分配请求，并把必须共享的内容（事件、锁、任务队列、记录 ID、缓存）迁移到 Redis。**不修改 NocoBase 内核**：由五个普通插件和一个小型启动器组成，管理页面位于 *设置 → 多核模式*。
 
@@ -423,6 +424,12 @@ NocoBase 用 **snowflake** 算法生成很多表的主键（工作流执行、�
 curl -s -X POST $BASE/api/multicore:selftest -H "Authorization: Bearer $TOKEN"   # checks.workerIds.ok 必须为 true
 docker exec <redis> redis-cli --scan --pattern '*:wid:*'                           # 每个运行中的工作进程对应一个键
 ```
+
+## 支持本项目
+
+nocobase-multicore 是免费的开源项目。如果它为您节省了时间或成本，欢迎通过捐赠支持项目的开发。捐赠完全自愿，不附带任何额外权利或优先支持。
+
+<p align="center"><a href="https://boosty.to/lipsept/donate"><img alt="在 Boosty 上捐赠" src="https://img.shields.io/badge/%E6%8D%90%E8%B5%A0-Boosty-F15F2C?style=for-the-badge"></a></p>
 
 ## 更多
 

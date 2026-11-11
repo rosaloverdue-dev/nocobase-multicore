@@ -35,9 +35,16 @@ var require_config = __commonJS({
     var os = require("node:os");
     var path = require("node:path");
     var AFFINITY_MODES = Object.freeze(["off", "token", "ip"]);
-    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off" });
+    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off", heapMb: 0 });
+    var HEAP_MIN_MB = 256;
     function normalizeAffinity(value) {
       return AFFINITY_MODES.includes(value) ? value : "off";
+    }
+    function normalizeHeapMb(value) {
+      const n = Math.floor(Number(value));
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      const hostMb = Math.floor(os.totalmem() / 1048576);
+      return Math.max(HEAP_MIN_MB, Math.min(n, Math.max(HEAP_MIN_MB, hostMb)));
     }
     function storageDir(env = process.env) {
       if (env.MULTICORE_STORAGE) return path.resolve(env.MULTICORE_STORAGE);
@@ -49,6 +56,9 @@ var require_config = __commonJS({
     }
     function statusPath(env = process.env) {
       return path.join(path.dirname(configPath(env)), "status.json");
+    }
+    function eventsPath(env = process.env) {
+      return path.join(path.dirname(configPath(env)), "events.log");
     }
     function maxWorkers(env = process.env) {
       const fromEnv = Number(env.MULTICORE_MAX_WORKERS);
@@ -68,6 +78,7 @@ var require_config = __commonJS({
           enabled: Boolean(raw.enabled),
           workers: clampWorkers(raw.workers, env),
           affinity: normalizeAffinity(raw.affinity),
+          heapMb: normalizeHeapMb(raw.heapMb),
           updatedAt: raw.updatedAt || null,
           updatedBy: raw.updatedBy || null
         };
@@ -82,6 +93,7 @@ var require_config = __commonJS({
         enabled: Boolean(config.enabled),
         workers: clampWorkers(config.workers, env),
         affinity: normalizeAffinity(config.affinity),
+        heapMb: normalizeHeapMb(config.heapMb),
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         updatedBy: config.updatedBy || null
       };
@@ -90,7 +102,20 @@ var require_config = __commonJS({
       fs.renameSync(tmp, file);
       return body;
     }
-    module2.exports = { AFFINITY_MODES, normalizeAffinity, DEFAULT_CONFIG, storageDir, configPath, statusPath, maxWorkers, clampWorkers, readConfig, writeConfig };
+    module2.exports = {
+      AFFINITY_MODES,
+      normalizeAffinity,
+      normalizeHeapMb,
+      DEFAULT_CONFIG,
+      storageDir,
+      configPath,
+      statusPath,
+      eventsPath,
+      maxWorkers,
+      clampWorkers,
+      readConfig,
+      writeConfig
+    };
   }
 });
 
@@ -134,10 +159,13 @@ var DEFAULT_TIMEOUT = 15e3;
 var MAX_STREAM_LEN = 1e5;
 var RETRY_DELAY = 500;
 var CLAIM_EVERY = 1e4;
+var STALLED_AFTER = 9e4;
 var RedisQueueAdapter = class {
-  constructor(app, prefix) {
+  constructor(app, prefix, tuning = {}) {
     this.app = app;
     this.prefix = prefix || keyPrefix();
+    this.claimEveryMs = tuning.claimEveryMs || CLAIM_EVERY;
+    this.stalledAfterMs = tuning.stalledAfterMs || STALLED_AFTER;
   }
   app;
   /** Marker read by the multicore manager plugin to report which adapter is active. */
@@ -148,6 +176,10 @@ var RedisQueueAdapter = class {
   subs = /* @__PURE__ */ new Map();
   claimTimer;
   prefix;
+  claimEveryMs;
+  stalledAfterMs;
+  /** stream -> ids of the messages whose handler is running in this process right now */
+  running = /* @__PURE__ */ new Map();
   stream(channel) {
     return `${this.prefix}:q:${channel}`;
   }
@@ -161,7 +193,10 @@ var RedisQueueAdapter = class {
     if (this.connected) return;
     this.client = await this.app.redisConnectionManager.getConnectionSync("mcore:queue");
     this.connected = true;
-    this.claimTimer = setInterval(() => this.claimStalled().catch(() => void 0), CLAIM_EVERY);
+    this.claimTimer = setInterval(() => {
+      this.touchRunning().catch(() => void 0);
+      this.claimStalled().catch(() => void 0);
+    }, this.claimEveryMs);
     this.claimTimer.unref?.();
     this.logger.info(`[multicore] queue adapter connected (consumer ${this.consumerId})`);
     for (const channel of this.subs.keys()) this.startLoop(channel);
@@ -276,6 +311,9 @@ var RedisQueueAdapter = class {
       return;
     }
     const { timeout = DEFAULT_TIMEOUT, maxRetries = 0, retried = 0 } = options;
+    let ids = this.running.get(stream);
+    if (!ids) this.running.set(stream, ids = /* @__PURE__ */ new Set());
+    ids.add(entry.id);
     try {
       await event.process(content, { id: entry.id, retried, signal: AbortSignal.timeout(timeout), queueOptions: options });
     } catch (error) {
@@ -286,15 +324,32 @@ var RedisQueueAdapter = class {
       } else {
         this.logger.error(`[multicore] queue "${channel}" message ${entry.id} failed: ${error?.message}`, { error });
       }
+    } finally {
+      ids.delete(entry.id);
     }
     await this.ack(stream, entry.id);
   }
   async ack(stream, id) {
     try {
-      await this.client.xAck(stream, GROUP, id);
-      await this.client.xDel(stream, id);
+      await Promise.all([this.client.xAck(stream, GROUP, id), this.client.xDel(stream, id)]);
     } catch (error) {
       this.logger.warn(`[multicore] queue ack failed for ${id}: ${error?.message}`);
+    }
+  }
+  /**
+   * Jobs that are still running here: claim them for ourselves again, which resets their idle time in Redis without
+   * counting as a new delivery (JUSTID). Without this, any job longer than the takeover threshold would be picked up
+   * by another worker and run a second time while the first run is still in progress.
+   */
+  async touchRunning() {
+    if (!this.connected) return;
+    for (const [stream, ids] of this.running.entries()) {
+      if (!ids.size) continue;
+      try {
+        await this.client.sendCommand(["XCLAIM", stream, GROUP, this.consumerId, "0", ...ids, "JUSTID"]);
+      } catch (error) {
+        this.logger.warn(`[multicore] queue: could not refresh running messages on ${stream}: ${error?.message}`);
+      }
     }
   }
   /** Take over messages that a crashed worker left pending, and run them here. */
@@ -303,16 +358,16 @@ var RedisQueueAdapter = class {
     for (const [channel, sub] of this.subs.entries()) {
       if (sub.stop || !sub.event.idle()) continue;
       const stream = this.stream(channel);
-      const minIdle = DEFAULT_TIMEOUT * 2 + 5e3;
       let result;
       try {
-        result = await this.client.xAutoClaim(stream, GROUP, this.consumerId, minIdle, "0-0", { COUNT: 5 });
+        result = await this.client.xAutoClaim(stream, GROUP, this.consumerId, this.stalledAfterMs, "0-0", { COUNT: 5 });
       } catch (error) {
         if (String(error?.message).includes("NOGROUP")) continue;
         throw error;
       }
       for (const message of result?.messages || []) {
         if (!message) continue;
+        if (this.running.get(stream)?.has(message.id)) continue;
         this.logger.warn(`[multicore] queue "${channel}": took over stalled message ${message.id}`);
         this.dispatch(channel, stream, sub, message);
       }
@@ -326,7 +381,7 @@ function turnOffClusterMode(app, why) {
   try {
     const current = cfg.readConfig();
     if (!current.enabled) return false;
-    cfg.writeConfig({ enabled: false, workers: 1, updatedBy: `auto: ${why}` });
+    cfg.writeConfig({ ...current, enabled: false, workers: 1, updatedBy: `auto: ${why}` });
     app.logger.warn(`[multicore] ${why}: cluster mode switched off in ${cfg.configPath()}; the supervisor will return to a single process`);
     if (typeof process.send === "function" && process.env.MULTICORE_SUPERVISED === "1") {
       process.send({ cmd: "multicore", type: "apply" });

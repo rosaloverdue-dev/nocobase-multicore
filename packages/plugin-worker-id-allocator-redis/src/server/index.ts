@@ -16,6 +16,11 @@ const RELEASE_SCRIPT = `if redis.call('get', KEYS[1]) == ARGV[1] then return red
  * The id is a Redis lease renewed every 10s; a crashed process frees its id after 60s.
  * If the lease is lost (expired during a long stall, Redis restart/flush) the allocator first tries to take the SAME id back;
  * if another process already owns it, a supervised worker exits so the supervisor respawns it with a fresh id.
+ *
+ * Two things keep that last case from happening inside one supervisor: every worker tells the supervisor which id it
+ * holds, and the supervisor passes the ids of the live workers to each new worker (MULTICORE_WID_AVOID), which then
+ * leaves them alone even when their lease has run out in Redis (the owner is stuck in a long event-loop stall and
+ * will renew as soon as it wakes up).
  */
 export class RedisWorkerIdAllocator {
   readonly kind = 'redis';
@@ -35,6 +40,7 @@ export class RedisWorkerIdAllocator {
   rebind(app: any) {
     this.app = app;
     this.client = undefined;
+    if (this.id !== null) this.report();
   }
 
   private async getClient() {
@@ -48,26 +54,53 @@ export class RedisWorkerIdAllocator {
     return `${keyPrefix()}:wid:${id}`;
   }
 
+  /** Ids held by the other live workers of this supervisor (see the class comment). */
+  private avoided(): Set<number> {
+    const out = new Set<number>();
+    for (const part of String(process.env.MULTICORE_WID_AVOID || '').split(',')) {
+      const n = Number(part);
+      if (part.trim() !== '' && Number.isInteger(n) && n >= 0 && n < SLOTS) out.add(n);
+    }
+    return out;
+  }
+
+  /** Tell the supervisor which id this process holds, so that workers started later keep away from it. */
+  private report() {
+    if (process.env.MULTICORE_SUPERVISED !== '1' || typeof process.send !== 'function') return;
+    try {
+      process.send({ cmd: 'multicore', type: 'wid', id: this.id });
+    } catch (e) {
+      // supervisor gone
+    }
+  }
+
   async getWorkerId(): Promise<number> {
     if (this.id !== null) return this.id;
     const client = await this.getClient();
+    const avoid = this.avoided();
     const start = Math.floor(Math.random() * SLOTS);
     for (let attempt = 0; attempt < 20; attempt += 1) {
       for (let i = 0; i < SLOTS; i += 1) {
         const id = (start + i) % SLOTS;
+        // an id of a live sibling is only considered when nothing else has been free for a while
+        if (avoid.has(id) && attempt < 10) continue;
         const ok = await client.set(this.key(id), this.token, { NX: true, PX: LEASE_MS });
         if (ok === 'OK') {
           this.id = id;
           this.timer = setInterval(() => this.renew().catch(() => undefined), RENEW_MS);
           this.timer.unref?.();
           this.app.logger.info(`[multicore] worker id ${id} leased`);
+          this.report();
           return id;
         }
       }
-      await sleep(1500); // all 32 ids are taken (stale leases expire after 30s) - wait and retry
+      await sleep(this.retryDelayMs); // every id is taken (stale leases expire after 60 s) - wait and retry
     }
     throw new Error(`[multicore] no free worker id in Redis (${SLOTS} processes are already running?)`);
   }
+
+  /** Overridable for tests. */
+  protected retryDelayMs = 1500;
 
   /** Overridable for tests. */
   protected terminate(code = 1) {

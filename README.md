@@ -23,7 +23,7 @@ NocoBase (community edition) is a single Node.js process — **one CPU core**, h
 | Install | — | one command (Docker Compose: Redis included) |
 | Remove | — | one command, back to stock NocoBase; removing a plugin switches the cluster off by itself |
 
-> Status `0.1.2` — tested on NocoBase **2.2.33** (see [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). AI agents continuing the work: start with [AGENTS.md](AGENTS.md).
+> Status `0.2.0` — tested on NocoBase **2.2.33** (see [docs/TEST-REPORT.md](docs/TEST-REPORT.md)). AI agents continuing the work: start with [AGENTS.md](AGENTS.md).
 
 ## Contents
 [Quick start](#quick-start) · [How it works](#how-it-works) · [Load balancing](#load-balancing) · [Requirements](#requirements) · [Installation methods](#installation-methods) · [Launch methods](#launch-methods) · [Admin page](#admin-page) · [Configuration](#configuration-reference) · [Tests](#test-commands) · [FAQ](#workflows-safety-and-removal-faq) · [Troubleshooting](#troubleshooting) · [The parts in detail](#the-parts-in-detail)
@@ -33,7 +33,7 @@ NocoBase (community edition) is a single Node.js process — **one CPU core**, h
 NocoBase runs in **Docker Compose**? One command (run it on the Docker host; `<container>` is the NocoBase app container name from `docker ps`):
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.2.tgz && cd nocobase-multicore-bundle-0.1.2
+tar xzf nocobase-multicore-bundle-0.2.0.tgz && cd nocobase-multicore-bundle-0.2.0
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -44,7 +44,7 @@ NocoBase runs from a project folder (no Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # instead of `yarn start`
 ```
-Download `nocobase-multicore-bundle-<version>.tgz` from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (the same files are in [`releases/v0.1.2`](releases/v0.1.2), or build them: `node scripts/build.mjs`).
+Download `nocobase-multicore-bundle-<version>.tgz` from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (the same files are in [`releases/v0.2.0`](releases/v0.2.0), or build them: `node scripts/build.mjs`).
 
 ## What is inside
 
@@ -81,9 +81,11 @@ Plain `node:cluster` hands every new TCP connection to the next worker in turn, 
 The built-in balancer fixes that:
 
 * each worker listens on a **private loopback port**; the supervisor owns the public port;
-* every HTTP request goes to the worker with the **fewest requests in flight**; a worker that stopped answering heartbeats (blocked event loop) is avoided while any other worker is available;
+* every HTTP request goes to the worker with the **lowest load score**: requests in flight plus the event-loop lag the worker reports twice a second; a worker that stopped answering heartbeats for 1.5 s (blocked event loop) is avoided while any other worker is available;
 * WebSockets are tunnelled to the worker with the fewest sockets; `X-Forwarded-For` is added;
-* a bodyless request is retried once on another worker if the connection fails; with no ready worker the client gets a clean JSON `503` with `Retry-After`;
+* a request whose client went away (the user left the page) is cancelled on its worker and is **never run again** on another one;
+* if a worker cannot be reached, or closes a kept-alive connection at the very moment a request is sent, the request is **replayed once** — reads always, writes (`POST`…) only when the worker certainly did not process them; bodies up to 1 MiB are kept in memory for that, larger uploads are streamed as before. With no ready worker the client gets a clean JSON `503` with `Retry-After`;
+* workers keep idle connections open for 10 minutes and the balancer closes them after 8 seconds, so a worker waking up from a long stall never drops requests that were waiting for it;
 * during a rolling replace the old worker leaves the balancer first and is stopped only after its in-flight requests finished.
 
 Live numbers (requests in flight / served per worker) are in the admin page and in `storage/multicore/status.json`. `MULTICORE_BALANCER=off` returns to the plain shared-port mode.
@@ -104,7 +106,7 @@ Live numbers (requests in flight / served per worker) are in the admin page and 
 
 ### 1. One command — `install.sh` (recommended)
 
-Download the bundle from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (or from [`releases/v0.1.2`](releases/v0.1.2)), unpack, run:
+Download the bundle from the [latest release](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (or from [`releases/v0.2.0`](releases/v0.2.0)), unpack, run:
 
 ```bash
 ./install.sh --docker <container-name> [--workers N]      # Docker (Compose: Redis + entrypoint are configured for you)
@@ -132,9 +134,9 @@ For a Docker Compose container the script reads the compose labels, writes `dock
 # inside the NocoBase container / project directory
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.2.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.2.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.2.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.2.0.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # links storage/plugins into node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
@@ -172,7 +174,13 @@ services:
 
 * **switch** and **number of workers** with the number of server CPU cores shown next to it; *Apply* does a rolling replace;
 * **worker affinity** (off / by login token / by client IP), applied instantly;
-* **live process table**: slot, PID, state, uptime, CPU %, memory, event-loop lag, **requests in flight / served**, instance id, host;
+* **worker memory limit** (`--max-old-space-size`, MB; empty = Node's default / `NODE_OPTIONS`), applied by a rolling replace;
+* **overview**: workers, users online, open tabs, requests per second, balancer errors, server memory;
+* **live worker table**: slot, PID, state (running / not responding for N s / starting / being replaced), uptime, CPU %, memory (process and JavaScript heap of its limit), event-loop lag, requests in flight / served / per second, average response time, open tabs, **users** (click the number to see who is connected to that worker), crashes and stalls with the reason of the last one. A worker with a blocked event loop stays in the table and is marked instead of disappearing;
+* **Restart** button per worker and **Restart all, one by one**: zero-downtime (a replacement starts first, then the old worker finishes its requests);
+* **who is online**: a searchable window with user, login, number of open tabs, connected since, IP address and the workers the tabs are on (taken from NocoBase's own WebSocket connections, nothing extra is stored);
+* **event journal**: worker starts, exits with the reason (out of memory, killed, error code), stalls with their duration, restarts and who asked for them, "Bad gateway" answers. Also in `storage/multicore/events.log`;
+* a **warning** when the database cannot accept `(workers + 1) × DB_POOL_MAX` connections;
 * **adapter status** (pub/sub, locks, queue, worker ids, cache) and Redis latency/version;
 * **cluster self-test**: pub/sub reaches every worker, locks exclude other processes, 20 queue jobs run exactly once, worker ids are distinct.
 
@@ -201,8 +209,9 @@ Results of the runs done so far: [docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 | `MULTICORE_APP_ENTRY` | Path to `@nocobase/app/lib/index.js` (auto-detected). |
 | `MULTICORE_QUICKSTART` | `0` = do not run `--quickstart` on the first start. |
 | `MULTICORE_EXIT_GRACE_MS` | Time a stopping worker gets before `process.exit` (default 10000). |
+| `MULTICORE_KEEPALIVE_MS` | How long a worker keeps an idle connection from the balancer open (default 600000). Keep it far above the balancer's 8 s. |
 | `MULTICORE_REDIS_PREFIX`, `MULTICORE_NAMESPACE` | Redis key prefix `<prefix>:<namespace>` (default `mcore:<DB name>`). |
-| `MULTICORE_STORAGE`, `MULTICORE_CONFIG` | Where `config.json` / `status.json` live (default `storage/multicore/`). |
+| `MULTICORE_STORAGE`, `MULTICORE_CONFIG` | Where `config.json` / `status.json` / `events.log` live (default `storage/multicore/`). |
 | `CORS_ORIGIN_WHITELIST` | NocoBase's own: allowed origins when you log in through another host name or a proxy. |
 
 ## Workflows, safety and removal (FAQ)
@@ -240,6 +249,10 @@ The multi-core files live in `storage/`, so they survive a new image; you do **n
 | A "Script error for @nb-multicore/…" full-screen error | An old build without the client stub; use the files from this release. |
 | Plugin enabled in the UI but adapter inactive | Restart the container (cluster: only one worker saw the change). |
 | Log line `… adapter not activated: REDIS_URL is not set` | Single mode or no Redis: expected, nothing is broken. |
+| One worker gets almost all requests, the others show a large constant "requests in flight" | Bug of versions ≤ 0.1.2 (requests cancelled by the browser were never released). Update to 0.2.0. |
+| `Bad gateway: the application worker did not answer` under load, although no worker restarted | Versions ≤ 0.1.2: a worker busy for more than 5 s dropped the writes that were waiting for it. Update to 0.2.0; the *Event journal* shows any remaining ones with their cause. |
+| A worker restarts by itself | Look at the *Event journal*: "out of memory" → raise the *worker memory limit*; "killed" → the server itself ran out of memory (fewer workers or more RAM). |
+| `too many clients already` / `Too many connections` from the database | Every worker has its own pool: `(workers + 1) × DB_POOL_MAX` must stay below the database's `max_connections`. The settings page warns about it. |
 
 ## The parts in detail
 

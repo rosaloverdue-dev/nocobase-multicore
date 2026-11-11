@@ -144,3 +144,69 @@ test('queued renew ticks after a stall do not mistake our own reclaimed lease fo
   await a.alloc.renew();
   assert.equal(a.exited(), null);
 });
+
+test('ids of live sibling workers (MULTICORE_WID_AVOID) are left alone even when their lease has expired', async (t) => {
+  const redis = fakeRedis();
+  const a = await make(redis);
+  if (!a) return t.skip('esbuild is not available');
+  // every id except 5 and 17 belongs to a live sibling whose lease has run out (nothing in Redis)
+  const avoid = [];
+  for (let i = 0; i < 32; i += 1) if (i !== 5 && i !== 17) avoid.push(i);
+  process.env.MULTICORE_WID_AVOID = avoid.join(',');
+  const sent = [];
+  const realSend = process.send;
+  process.env.MULTICORE_SUPERVISED = '1';
+  process.send = (m) => sent.push(m);
+  try {
+    const b = await make(redis);
+    const ia = await a.alloc.getWorkerId();
+    const ib = await b.alloc.getWorkerId();
+    assert.deepEqual([ia, ib].sort((x, y) => x - y), [5, 17]);
+    // the supervisor is told which id each worker holds
+    assert.deepEqual(sent.map((m) => [m.cmd, m.type]).slice(0, 2), [['multicore', 'wid'], ['multicore', 'wid']]);
+    assert.deepEqual(sent.map((m) => m.id).sort((x, y) => x - y), [5, 17]);
+    // nothing else is free: a third worker waits and finally takes an avoided id rather than failing to start
+    const c = await make(redis);
+    c.alloc.retryDelayMs = 1;
+    const ic = await c.alloc.getWorkerId();
+    assert.ok(avoid.includes(ic));
+    for (const x of [a, b, c]) clearInterval(x.alloc.timer);
+  } finally {
+    process.send = realSend;
+    delete process.env.MULTICORE_WID_AVOID;
+    process.env.MULTICORE_SUPERVISED = '0';
+  }
+});
+
+test('lease, renewal and reclaim work against a real Redis', async (t) => {
+  const helpers = require('./helpers');
+  const client = await helpers.redis();
+  const a = client && (await make(client));
+  if (!a) return t.skip('no Redis / esbuild available');
+  process.env.MULTICORE_REDIS_PREFIX = `mcoretest${process.pid}${Date.now()}`;
+  process.env.MULTICORE_SUPERVISED = '1';
+  try {
+    const b = await make(client);
+    const ia = await a.alloc.getWorkerId();
+    const ib = await b.alloc.getWorkerId();
+    assert.notEqual(ia, ib);
+    const key = `${process.env.MULTICORE_REDIS_PREFIX}:${process.env.DB_DATABASE || 'nocobase'}:wid:${ia}`;
+    assert.equal(await client.get(key), a.alloc.token);
+    await client.pExpire(key, 500);
+    await a.alloc.renew();
+    assert.ok((await client.pTTL(key)) > 50_000, 'renew extends the lease to 60 s');
+    await client.del(key); // expired during a stall
+    await a.alloc.renew();
+    assert.equal(await client.get(key), a.alloc.token, 'the same id is taken back');
+    assert.equal(a.exited(), null);
+    await client.set(key, 'another-process'); // really taken by someone else
+    await a.alloc.renew();
+    assert.equal(a.exited(), 1);
+    for (const x of [a, b]) clearInterval(x.alloc.timer);
+    await client.del([key, key.replace(/:\d+$/, `:${ib}`)]);
+  } finally {
+    delete process.env.MULTICORE_REDIS_PREFIX;
+    process.env.MULTICORE_SUPERVISED = '0';
+    helpers.closeAll();
+  }
+});

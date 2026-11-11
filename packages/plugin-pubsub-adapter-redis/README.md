@@ -37,4 +37,4 @@ No data is stored in Redis (fire-and-forget channels). Disabling/removing the pl
 The *Run check* button of the manager page (pub/sub reaches N of N workers), or create a collection in the UI and open it on another browser tab: it is visible within ~1 s. `node tests/consistency.js` automates this.
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-pubsub-adapter-redis` · v0.1.1 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-pubsub-adapter-redis` · v0.2.0 · AGPL-3.0-only

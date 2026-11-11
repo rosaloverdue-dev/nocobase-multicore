@@ -34,4 +34,4 @@ _Делает события видимыми для всех воркеров (
 Кнопка «Запустить проверку» на странице менеджера (pub/sub доходит до N из N воркеров), либо создайте коллекцию в интерфейсе и откройте её в другой вкладке браузера: она видна примерно через 1 с. Автоматизировано в `node tests/consistency.js`.
 
 ---
-Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-pubsub-adapter-redis` · v0.1.1 · AGPL-3.0-only
+Часть проекта [nocobase-multicore](../../README.ru.md). Пакет: `@nb-multicore/plugin-pubsub-adapter-redis` · v0.2.0 · AGPL-3.0-only

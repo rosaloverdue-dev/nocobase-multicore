@@ -23,14 +23,14 @@ NocoBase (community) — это один процесс Node.js, то есть *
 | Установка | — | одна команда (Docker Compose: Redis включён) |
 | Удаление | — | одна команда, снова обычный NocoBase; удаление плагина само выключает кластер |
 
-> Статус `0.1.2` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
+> Статус `0.2.0` — проверено на NocoBase **2.2.33** (см. [docs/ru/TEST-REPORT.md](docs/ru/TEST-REPORT.md)). Для ИИ-агентов: начните с [AGENTS.md](AGENTS.md). Основная техническая документация — на английском в [docs/](docs/).
 
 ## Быстрый старт
 
 NocoBase в **Docker Compose**? Одна команда (на хосте Docker; `<container>` — имя контейнера приложения из `docker ps`):
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.2.tgz && cd nocobase-multicore-bundle-0.1.2
+tar xzf nocobase-multicore-bundle-0.2.0.tgz && cd nocobase-multicore-bundle-0.2.0
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -41,7 +41,7 @@ NocoBase запущен из папки проекта (без Docker)?
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # вместо `yarn start`
 ```
-Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.1.2`](releases/v0.1.2), или соберите: `node scripts/build.mjs`).
+Скачайте `nocobase-multicore-bundle-<версия>.tgz` из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (те же файлы лежат в [`releases/v0.2.0`](releases/v0.2.0), или соберите: `node scripts/build.mjs`).
 
 ## Что внутри
 
@@ -78,9 +78,11 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 Встроенный балансировщик это исправляет:
 
 * каждый воркер слушает **приватный loopback-порт**, публичный порт держит супервизор;
-* каждый HTTP-запрос идёт к воркеру с **наименьшим числом запросов в работе**; воркер, перестав отвечать на heartbeat (заблокирован цикл событий), обходится, пока есть другие;
+* каждый HTTP-запрос идёт к воркеру с **наименьшей оценкой нагрузки**: число запросов в работе плюс задержка цикла событий, которую воркер сообщает дважды в секунду; воркер, не отвечающий на heartbeat 1,5 с (заблокирован цикл событий), обходится, пока есть другие;
 * WebSocket туннелируются к воркеру с наименьшим числом сокетов, добавляется `X-Forwarded-For`;
-* запрос без тела при ошибке соединения повторяется один раз на другом воркере; если готовых воркеров нет — аккуратный JSON `503` с `Retry-After`;
+* запрос, клиент которого ушёл (пользователь закрыл страницу), отменяется на своём воркере и **никогда не выполняется повторно** на другом;
+* если воркер недоступен или закрыл удерживаемое соединение в момент отправки запроса, запрос **повторяется один раз** — чтение всегда, запись (`POST`…) только когда воркер точно его не обработал; тела до 1 МиБ для этого держатся в памяти, большие загрузки идут потоком, как раньше. Если готовых воркеров нет — аккуратный JSON `503` с `Retry-After`;
+* воркеры держат простаивающие соединения 10 минут, а балансировщик закрывает их через 8 секунд, поэтому воркер, очнувшийся после долгого зависания, не теряет ждавшие его запросы;
 * при плавной замене старый воркер сначала выходит из балансировки и останавливается только после завершения своих запросов.
 
 Живые числа (запросов в работе / обработано) видны на странице и в `storage/multicore/status.json`. `MULTICORE_BALANCER=off` возвращает обычный режим с общим портом.
@@ -101,7 +103,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. Одна команда — `install.sh` (рекомендуется)
 
-Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.1.2`](releases/v0.1.2)), распакуйте и запустите:
+Скачайте бандл из [последнего релиза](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest) (или из [`releases/v0.2.0`](releases/v0.2.0)), распакуйте и запустите:
 
 ```bash
 ./install.sh --docker <имя-контейнера> [--workers N]       # Docker (Compose: Redis и entrypoint настраиваются сами)
@@ -129,9 +131,9 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 # внутри контейнера NocoBase / папки проекта
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.2.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.2.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.2.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.2.0.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # связывает storage/plugins с node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
@@ -152,7 +154,14 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 *Настройки → Многоядерный режим* (английский, русский и китайский; другие языки интерфейса — на английском):
 
 * **переключатель** и **число воркеров** (рядом — число ядер сервера); «Применить» выполняет плавную замену;
-* **таблица процессов в реальном времени**: слот, PID, состояние, аптайм, CPU %, память, задержка цикла событий, **запросов в работе / обработано**, id экземпляра, хост;
+* **привязка пользователя к воркеру** (выключена / по токену входа / по IP), применяется сразу;
+* **лимит памяти воркера** (`--max-old-space-size`, МБ; пусто — значение Node по умолчанию или из `NODE_OPTIONS`), применяется плавной заменой;
+* **сводка**: воркеры, пользователи онлайн, открытые вкладки, запросов в секунду, ошибки балансировщика, память сервера;
+* **таблица воркеров в реальном времени**: слот, PID, состояние (работает / не отвечает N с / запускается / заменяется), аптайм, CPU %, память (процесс и куча JavaScript из лимита), задержка цикла событий, запросов в работе / обработано / в секунду, среднее время ответа, открытые вкладки, **пользователи** (нажмите на число, чтобы увидеть, кто подключён к этому воркеру), падения и зависания с причиной последнего. Воркер с заблокированным циклом событий остаётся в таблице с пометкой, а не исчезает;
+* кнопка **«Перезапустить»** у каждого воркера и **«Перезапустить все по очереди»**: без простоя (сначала стартует замена, потом старый воркер завершает свои запросы);
+* **кто онлайн**: окно с поиском — пользователь, логин, число открытых вкладок, когда подключился, IP-адрес и воркеры, на которых открыты вкладки (берётся из штатных WebSocket-соединений NocoBase, ничего дополнительно не хранится);
+* **журнал событий**: запуски воркеров, завершения с причиной (нехватка памяти, убит, код ошибки), зависания с длительностью, перезапуски и кто их запросил, ответы «Bad gateway». Дублируется в `storage/multicore/events.log`;
+* **предупреждение**, если база данных не примет `(воркеры + 1) × DB_POOL_MAX` соединений;
 * **состояние адаптеров** (pub/sub, блокировки, очередь, worker id, кэш), задержка и версия Redis;
 * **самопроверка кластера**: pub/sub доходит до всех воркеров, блокировки исключают другие процессы, 20 задач очереди выполняются ровно по разу, worker id различаются.
 
@@ -180,8 +189,9 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 | `MULTICORE_APP_ENTRY` | Путь к `@nocobase/app/lib/index.js` (определяется автоматически). |
 | `MULTICORE_QUICKSTART` | `0` — не выполнять `--quickstart` при первом запуске. |
 | `MULTICORE_EXIT_GRACE_MS` | Сколько времени останавливающийся воркер имеет до `process.exit` (по умолчанию 10000). |
+| `MULTICORE_KEEPALIVE_MS` | Сколько воркер держит простаивающее соединение от балансировщика (по умолчанию 600000). Должно быть намного больше 8 с балансировщика. |
 | `MULTICORE_REDIS_PREFIX`, `MULTICORE_NAMESPACE` | Префикс ключей Redis `<префикс>:<пространство>` (по умолчанию `mcore:<имя БД>`). |
-| `MULTICORE_STORAGE`, `MULTICORE_CONFIG` | Где лежат `config.json` / `status.json` (по умолчанию `storage/multicore/`). |
+| `MULTICORE_STORAGE`, `MULTICORE_CONFIG` | Где лежат `config.json` / `status.json` / `events.log` (по умолчанию `storage/multicore/`). |
 | `CORS_ORIGIN_WHITELIST` | Штатная переменная NocoBase: разрешённые адреса при входе через другое имя хоста или прокси. |
 
 ## Рабочие процессы, безопасность и удаление (FAQ)
@@ -219,6 +229,10 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 | Полноэкранная ошибка «Script error for @nb-multicore/…» | Старая сборка без клиентской заглушки; используйте файлы из этого выпуска. |
 | Плагин включён в интерфейсе, но адаптер не активен | Перезапустите контейнер (в кластере изменение увидел только один воркер). |
 | В логе `… adapter not activated: REDIS_URL is not set` | Одиночный режим или нет Redis: так и должно быть, ничего не сломано. |
+| Почти все запросы достаются одному воркеру, у остальных большое постоянное число «запросов в работе» | Ошибка версий ≤ 0.1.2 (запросы, отменённые браузером, не освобождались). Обновитесь до 0.2.0. |
+| `Bad gateway: the application worker did not answer` под нагрузкой, хотя воркеры не перезапускались | Версии ≤ 0.1.2: воркер, занятый дольше 5 с, терял ждавшие его запросы на запись. Обновитесь до 0.2.0; оставшиеся случаи с причиной видны в «Журнале событий». |
+| Воркер перезапускается сам | Смотрите «Журнал событий»: «нехватка памяти» → увеличьте «Лимит памяти воркера»; «убит» → памяти не хватило самому серверу (меньше воркеров или больше ОЗУ). |
+| `too many clients already` / `Too many connections` от базы данных | У каждого воркера свой пул: `(воркеры + 1) × DB_POOL_MAX` должно быть меньше `max_connections` базы. Страница настроек об этом предупреждает. |
 
 ## Подробно о каждой части
 

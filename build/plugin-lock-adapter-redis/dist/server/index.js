@@ -35,9 +35,16 @@ var require_config = __commonJS({
     var os = require("node:os");
     var path = require("node:path");
     var AFFINITY_MODES = Object.freeze(["off", "token", "ip"]);
-    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off" });
+    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off", heapMb: 0 });
+    var HEAP_MIN_MB = 256;
     function normalizeAffinity(value) {
       return AFFINITY_MODES.includes(value) ? value : "off";
+    }
+    function normalizeHeapMb(value) {
+      const n = Math.floor(Number(value));
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      const hostMb = Math.floor(os.totalmem() / 1048576);
+      return Math.max(HEAP_MIN_MB, Math.min(n, Math.max(HEAP_MIN_MB, hostMb)));
     }
     function storageDir(env = process.env) {
       if (env.MULTICORE_STORAGE) return path.resolve(env.MULTICORE_STORAGE);
@@ -49,6 +56,9 @@ var require_config = __commonJS({
     }
     function statusPath(env = process.env) {
       return path.join(path.dirname(configPath(env)), "status.json");
+    }
+    function eventsPath(env = process.env) {
+      return path.join(path.dirname(configPath(env)), "events.log");
     }
     function maxWorkers(env = process.env) {
       const fromEnv = Number(env.MULTICORE_MAX_WORKERS);
@@ -68,6 +78,7 @@ var require_config = __commonJS({
           enabled: Boolean(raw.enabled),
           workers: clampWorkers(raw.workers, env),
           affinity: normalizeAffinity(raw.affinity),
+          heapMb: normalizeHeapMb(raw.heapMb),
           updatedAt: raw.updatedAt || null,
           updatedBy: raw.updatedBy || null
         };
@@ -82,6 +93,7 @@ var require_config = __commonJS({
         enabled: Boolean(config.enabled),
         workers: clampWorkers(config.workers, env),
         affinity: normalizeAffinity(config.affinity),
+        heapMb: normalizeHeapMb(config.heapMb),
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         updatedBy: config.updatedBy || null
       };
@@ -90,7 +102,20 @@ var require_config = __commonJS({
       fs.renameSync(tmp, file);
       return body;
     }
-    module2.exports = { AFFINITY_MODES, normalizeAffinity, DEFAULT_CONFIG, storageDir, configPath, statusPath, maxWorkers, clampWorkers, readConfig, writeConfig };
+    module2.exports = {
+      AFFINITY_MODES,
+      normalizeAffinity,
+      normalizeHeapMb,
+      DEFAULT_CONFIG,
+      storageDir,
+      configPath,
+      statusPath,
+      eventsPath,
+      maxWorkers,
+      clampWorkers,
+      readConfig,
+      writeConfig
+    };
   }
 });
 
@@ -273,7 +298,7 @@ function turnOffClusterMode(app, why) {
   try {
     const current = cfg.readConfig();
     if (!current.enabled) return false;
-    cfg.writeConfig({ enabled: false, workers: 1, updatedBy: `auto: ${why}` });
+    cfg.writeConfig({ ...current, enabled: false, workers: 1, updatedBy: `auto: ${why}` });
     app.logger.warn(`[multicore] ${why}: cluster mode switched off in ${cfg.configPath()}; the supervisor will return to a single process`);
     if (typeof process.send === "function" && process.env.MULTICORE_SUPERVISED === "1") {
       process.send({ cmd: "multicore", type: "apply" });

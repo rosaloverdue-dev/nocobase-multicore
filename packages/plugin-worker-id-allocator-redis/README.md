@@ -14,6 +14,7 @@ millisecond — the database answers `id must be unique` and the record (for ins
 
 * Every process **leases** a free id in 0–31 from Redis (`SET NX PX 60 s`), renews it every 10 s and keeps it for as long as the process lives.
 * A crashed process frees its id automatically after 60 s. A lost lease is re-acquired (same id) or, if another process took the id, the supervised worker exits and is respawned with a new id. At most 32 processes can run at once (the supervisor allows at most 32 workers by default).
+* Each worker reports its id to the supervisor, and a new worker is told which ids its live siblings hold (`MULTICORE_WID_AVOID`): it leaves them alone even when their lease has run out in Redis because the owner is stuck in a long stall.
 * The manager page shows the id of every worker, and the self-test fails if two workers share an id.
 
 **How it is built**
@@ -37,4 +38,4 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-worker-id-allocator-redis` · v0.1.1 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-worker-id-allocator-redis` · v0.2.0 · AGPL-3.0-only

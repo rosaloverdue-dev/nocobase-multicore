@@ -32,16 +32,28 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
 }
 
 /**
- * NocoBase's gateway opens the HTTP port first and loads the app afterwards, answering 503 ("app is starting") meanwhile.
- * In a cluster the primary would already route live traffic to such a worker. So the worker defers its first TCP listen()
- * (the gateway's HTTP server; IPC sockets listen on paths and are untouched) until the app reports status "running".
- * The gateway does not wait for the listen callback, so deferring is safe. MULTICORE_DEFER_LISTEN=0 disables this.
+ * Two things happen at the first TCP listen() of the process, which is the HTTP server of the NocoBase gateway
+ * (IPC sockets listen on paths and are untouched):
+ *
+ * 1. Keep-alive. Node closes an idle keep-alive connection after 5 s by default. The supervisor's balancer keeps
+ *    connections to the worker open and reuses them; if the worker's event loop is busy for longer than those 5 s,
+ *    the overdue keep-alive timer fires first when the loop wakes up and destroys connections that already carry a
+ *    request the worker has not even read yet (the client then gets "Bad gateway"). So the worker keeps idle
+ *    connections for a long time (MULTICORE_KEEPALIVE_MS, default 10 min) and the balancer is the one that closes them.
+ *
+ * 2. Deferred listen. The gateway opens the HTTP port first and loads the app afterwards, answering 503 ("app is
+ *    starting") meanwhile. In a cluster the primary would already route live traffic to such a worker. So the worker
+ *    defers the listen() until the app reports status "running". The gateway does not wait for the listen callback,
+ *    so deferring is safe. MULTICORE_DEFER_LISTEN=0 disables this.
  */
-if (process.env.MULTICORE_DEFER_LISTEN !== '0') {
+{
   const net = require('node:net');
   const originalListen = net.Server.prototype.listen;
-  let deferred = false;
-  const isTcpPort = (arg) => typeof arg === 'number' || (typeof arg === 'string' && /^\d+$/.test(arg));
+  const KEEPALIVE_MS = Number(process.env.MULTICORE_KEEPALIVE_MS) || 600_000;
+  const DEFER = process.env.MULTICORE_DEFER_LISTEN !== '0';
+  let seen = false;
+  const isTcpPort = (arg) =>
+    typeof arg === 'number' || (typeof arg === 'string' && /^\d+$/.test(arg)) || (arg && typeof arg === 'object' && Number(arg.port) > 0);
 
   const appIsRunning = async () => {
     try {
@@ -53,8 +65,10 @@ if (process.env.MULTICORE_DEFER_LISTEN !== '0') {
   };
 
   net.Server.prototype.listen = function (...args) {
-    if (deferred || !isTcpPort(args[0])) return originalListen.apply(this, args);
-    deferred = true;
+    if (seen || !isTcpPort(args[0])) return originalListen.apply(this, args);
+    seen = true;
+    if (typeof this.keepAliveTimeout === 'number' && this.keepAliveTimeout < KEEPALIVE_MS) this.keepAliveTimeout = KEEPALIVE_MS;
+    if (!DEFER) return originalListen.apply(this, args);
     const startedAt = Date.now();
     const timeoutMs = Number(process.env.MULTICORE_READY_TIMEOUT_MS) || 300_000;
     const poll = async () => {
@@ -68,16 +82,22 @@ if (process.env.MULTICORE_DEFER_LISTEN !== '0') {
   };
 }
 
-// Tell the supervisor's balancer that this event loop is alive. A worker that is busy for seconds (a huge query being
-// serialised) stops sending these, so the balancer sends new requests elsewhere until it answers again.
+// Tell the supervisor's balancer that this event loop is alive, and how late the timer fired (= event-loop lag).
+// A worker that is busy for seconds (a huge query being serialised) stops sending these, so the balancer sends new
+// requests elsewhere until it answers again; a worker that answers late gets fewer new requests.
 if (process.send && process.env.MULTICORE_SUPERVISED === '1') {
+  const EVERY = 500;
+  let expected = Date.now() + EVERY;
   const beat = setInterval(() => {
+    const now = Date.now();
+    const lag = Math.max(0, now - expected);
+    expected = now + EVERY;
     try {
-      process.send({ cmd: 'multicore', type: 'hb' });
+      process.send({ cmd: 'multicore', type: 'hb', lag });
     } catch (e) {
       // supervisor gone
     }
-  }, 500);
+  }, EVERY);
   beat.unref?.();
 }
 

@@ -14,7 +14,7 @@ replaces it with a Redis Streams queue shared by all workers.
 
 * Each message goes to **exactly one** worker in the whole cluster (consumer group), so the load is shared.
 * After success the message is acknowledged and deleted; after an error it is re-published with a retry counter (as the stock queue does).
-* **Crash recovery**: a message left half-processed by a dead worker is taken over by another one (`XAUTOCLAIM`) after `timeout×2 + 5 s`.
+* **Crash recovery**: a message left half-processed by a dead worker is taken over by another one (`XAUTOCLAIM`) once nobody refreshed it for 90 s. A job that is still running is refreshed by its worker every 10 s, so even a job that takes many minutes is never mistaken for an abandoned one and started a second time.
 * Delivery is **at-least-once** — in the rare case of a crash in the middle of a job it may run a second time (design workflow actions so that repeating them is harmless).
 
 **How it is built**
@@ -34,4 +34,4 @@ Unfinished jobs live in Redis. When you switch the cluster off, the stock in-mem
 *Run check*: 20 test jobs → 20 processed, 0 duplicates, spread over workers. `node tests/workflow.js 600 24 0` sends 600 real workflow executions through the queue: expect 600/600.
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-queue-adapter-redis` · v0.1.1 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-queue-adapter-redis` · v0.2.0 · AGPL-3.0-only

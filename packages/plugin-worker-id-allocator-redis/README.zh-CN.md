@@ -14,6 +14,7 @@ NocoBase 用 **snowflake** 算法生成很多表的主键（工作流执行、�
 
 * 每个进程从 Redis **租用**一个 0–31 中空闲的 ID（`SET NX PX 60 秒`），每 10 秒续租，并在进程存活期间一直持有。
 * 崩溃的进程在 60 秒后自动释放其 ID；丢失的租约会被重新获取，若 ID 已被其他进程占用，受守护的工作进程会退出并以新 ID 重新启动。同时最多可运行 32 个进程（守护进程默认最多允许 32 个工作进程）。
+* 每个工作进程都会把自己的 ID 报告给守护进程，新启动的进程会得到仍在运行的兄弟进程所持有的 ID 列表（`MULTICORE_WID_AVOID`），即使这些 ID 在 Redis 中的租约因持有者长时间卡顿而过期，也不会去占用。
 * 管理页面会显示每个工作进程的 ID；若两个工作进程 ID 相同，自检会失败。
 
 **实现方式**
@@ -37,4 +38,4 @@ docker exec <redis> redis-cli --scan --pattern '*:wid:*'                        
 ```
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-worker-id-allocator-redis` · v0.1.1 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-worker-id-allocator-redis` · v0.2.0 · AGPL-3.0-only

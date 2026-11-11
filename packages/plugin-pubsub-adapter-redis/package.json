@@ -1,6 +1,6 @@
 {
   "name": "@nb-multicore/plugin-pubsub-adapter-redis",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "displayName": "Multicore: Redis Pub/Sub adapter",
   "displayName.ru-RU": "Multicore: адаптер Pub/Sub Redis",
   "displayName.zh-CN": "Multicore：Redis 发布/订阅适配器",

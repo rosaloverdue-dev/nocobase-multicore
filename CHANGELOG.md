@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 — 2026-11-11
+**Fixes (all present since 0.1.0)**
+* **Balancer sent almost all traffic to one worker.** A request cancelled by the browser was retried on another worker, and that second attempt was never released from the "requests in flight" counter. The leaked counts piled up on every worker except one, so the least-busy rule kept choosing that one; cancelled heavy requests were also executed twice. Now a request whose client is gone is cancelled and never retried, and every attempt is released exactly once. (Reproduction: 40 aborted `GET`s → 80 upstream hits and the next 200 requests split 0/200/0/0; now 40 hits and 50/50/50/50.)
+* **`Bad gateway: the application worker did not answer` without any worker dying.** Node closes idle keep-alive connections after 5 s; a worker whose event loop was blocked longer ran those overdue timers first when it woke up and destroyed connections that already carried requests. Reads were retried, writes failed with 502. Workers now keep idle connections for 10 min (`MULTICORE_KEEPALIVE_MS`) and the balancer closes them after 8 s; in addition bodies up to 1 MiB are buffered so a write can be replayed when the worker certainly did not process it (connection refused, or a reused socket reset before the first response byte while the worker is alive).
+* **Queue: a long job could be started twice.** A message whose handler ran for more than 35 s was taken over by another worker. A running job is now refreshed by its worker every 10 s (`XCLAIM … JUSTID`); only messages nobody refreshed for 90 s are taken over.
+* A worker with a blocked event loop no longer disappears from the worker table: the table is built from the supervisor's slot list, Redis heartbeats only add details.
+* A replacement worker that fails to start no longer causes the old worker to be drained; the old one keeps serving.
+* New workers do not take the snowflake id of a live sibling whose Redis lease expired during a long stall (`MULTICORE_WID_AVOID`).
+* Removing/disabling a plugin (safeguard) keeps the other settings of `config.json` instead of dropping them.
+
+**New**
+* **Lag-aware balancing**: workers report their event-loop lag with every heartbeat (twice a second); the load score is requests in flight + lag/100 ms (lag under 50 ms is ignored as timer jitter). Stall threshold 1.5 s (was 2.5 s).
+* **Settings page**: overview tiles (workers, users online, open tabs, requests per second, balancer errors, server memory); worker table with state (running / not responding for N s / starting / being replaced), memory and heap limit, requests per second, average response time, open tabs, users, crashes and stalls with the last reason.
+* **Restart a worker** / **Restart all, one by one** — zero-downtime, also as `POST /api/multicore:restart`.
+* **Who is connected**: per worker or for the whole cluster — user, login, open tabs, connected since, IP, workers (`GET /api/multicore:connections`). Uses the WebSocket connections NocoBase already tracks.
+* **Event journal** on the page and in `storage/multicore/events.log`: worker exits with the reason (out of memory, killed, exit code), stalls of 5 s and more with their duration, restarts and who asked, Bad-gateway answers.
+* **Worker memory limit** (`heapMb` → `--max-old-space-size`) from the settings page, applied by a rolling replace.
+* **Database connection budget warning** when `(workers + 1) × DB_POOL_MAX` exceeds `max_connections`.
+* WebSocket: a refused upstream connection is retried on another worker; half-closed tunnels are torn down.
+
+**Performance**
+* The status page no longer scans the Redis keyspace (`SCAN`) on every refresh: workers register in a sorted set; heartbeat is one pipeline; the page stops polling in a background browser tab.
+* Queue acknowledgement is one round trip instead of two.
+* Proxy overhead unchanged (≈8–9k req/s through the balancer on 2 cores, same as 0.1.2, with or without bodies).
+
+**Tests** — `npm run test:unit` (47 tests): balancer regressions, supervisor end-to-end with fake workers (boot, even split, zero-downtime restart, crash + respawn, stall without Bad gateway, heap limit, scale down), queue adapter / worker-id / manager plugin against a real Redis. `npm run test:ui`: the settings page in headless Chromium with a mock API. **Not yet re-run on a NocoBase stand** — see `docs/TEST-REPORT.md`.
+
+**Upgrade** — replace the plugin folders and `storage/multicore/supervisor`, then restart the app (the supervisor itself must restart to load the new balancer). `config.json` is compatible.
+
 ## 0.1.2 — 2026-11-07
 * **Worker-id lease: no more false "id owned by another process" exits.** After a long event-loop stall (a heavy request blocking a worker for a minute) several queued renew ticks ran concurrently: one reclaimed the id, the next saw the key holding the worker's *own* token and exited the worker, so in-flight requests got `Bad gateway: the application worker did not answer`. Renewals are now serialized and a key that holds our own token is never a conflict. Unit test added (16 tests).
 * Known limit (unchanged): a request that blocks one worker's event loop for a long time still stalls that worker; the balancer routes new requests to the other workers.

@@ -17,6 +17,10 @@ connections to the workers round-robin, so the work is spread over several cores
 * **Rolling replace** when the mode or the number of workers changes: a new worker is started, the supervisor waits until it really accepts requests, then the old one leaves the round-robin (`disconnect`), is told to stop (`SIGTERM`, 30 s grace, then `SIGKILL`). Users see no errors.
 * Scale up / scale down (the highest slots are stopped first).
 * Respawns a crashed worker with exponential back-off (1 s → 30 s).
+* **Built-in balancer** (default): each worker listens on a private loopback port, every request goes to the worker with the lowest load score (requests in flight + event-loop lag); a request cancelled by the client is never run again elsewhere; a request is replayed only when the first worker certainly did not process it. `MULTICORE_BALANCER=off` returns to one shared port with round-robin.
+* **Manual zero-downtime restart** of one worker or of all workers one by one (asked for by the admin page over IPC); a replacement that fails to start leaves the old worker in place.
+* **Worker heap limit** from the config (`heapMb` → `--max-old-space-size`, overrides `NODE_OPTIONS`).
+* **Journal** `storage/multicore/events.log`: worker exits with the reason (out of memory / killed / exit code), event-loop stalls of 5 s and more, restarts, Bad-gateway answers.
 * Writes `storage/multicore/status.json` (mode, workers, states) and reads `storage/multicore/config.json` (what the admin page saved). Re-reads the config on an IPC message from a worker, on `SIGHUP`, and every 10 s.
 * Passes the environment to workers: `MULTICORE_SUPERVISED=1`, `MULTICORE_MODE=cluster|single`, `MULTICORE_SLOT`, and in cluster mode `REDIS_URL`, `CACHE_DEFAULT_STORE=redis`, `CACHE_REDIS_URL`.
 * `lib/worker-entry.js` is what each worker executes: it runs the NocoBase CLI `initEnv()` (loads `.env`), delays opening the HTTP port until the application is in the `running` state (so no request ever gets "503 app is starting"), and guarantees the process exits after `SIGTERM`.
@@ -35,6 +39,8 @@ If a future image changes that line the script stops with a clear message instea
 | `MULTICORE_MAX_WORKERS` | `min(cpus×2, 32)`, at least 2 | Upper bound of workers. |
 | `MULTICORE_QUICKSTART` | on | `0` = do not run `--quickstart` on first start. |
 | `MULTICORE_EXIT_GRACE_MS` | `10000` | How long a worker may take to stop before `process.exit`. |
+| `MULTICORE_KEEPALIVE_MS` | `600000` | How long a worker keeps an idle connection from the balancer (the balancer closes them after 8 s). |
+| `MULTICORE_BALANCER` | on | `off` = shared port and plain round-robin instead of the balancer. |
 | `MULTICORE_APP_ENTRY` | auto | Path to `@nocobase/app/lib/index.js`. |
 | `MULTICORE_REDIS_PREFIX`, `MULTICORE_NAMESPACE` | `mcore`, DB name | Redis key prefix (several clusters on one Redis). |
 | `MULTICORE_DEFER_LISTEN` | on | `0` = open the port immediately (not recommended). |
@@ -53,4 +59,4 @@ docker logs <container> 2>&1 | grep '\[multicore\]'           # supervisor event
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/multicore-supervisor` · v0.1.1 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/multicore-supervisor` · v0.2.0 · AGPL-3.0-only

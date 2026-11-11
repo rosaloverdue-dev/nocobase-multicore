@@ -13,7 +13,7 @@ NocoBase 把后台工作放入事件队列（`app.eventQueue`）：异步工作�
 
 * 每条消息在整个集群中**恰好**交给一个工作进程（消费者组），因此负载被分摊。
 * 成功后消息被确认并删除；失败后带重试计数重新发布（与原生队列相同）。
-* **崩溃恢复**：崩溃的工作进程留下的未完成消息，会在 `timeout×2 + 5 秒` 后被其他进程接管（`XAUTOCLAIM`）。
+* **崩溃恢复**：崩溃的工作进程留下的未完成消息，在 90 秒内无人刷新后会被其他进程接管（`XAUTOCLAIM`）。仍在执行的任务由其所在进程每 10 秒刷新一次，因此即使耗时很多分钟的任务也不会被误认为已被丢弃而再次启动。
 * 投递语义为**至少一次**——在任务执行中途崩溃的少见情况下可能会再执行一次（请让工作流动作可安全重复）。
 
 **实现方式**
@@ -33,4 +33,4 @@ NocoBase 把后台工作放入事件队列（`app.eventQueue`）：异步工作�
 “运行检查”：20 个测试任务 → 处理 20 个、重复 0 个，并分散到各工作进程。`node tests/workflow.js 600 24 0` 通过队列发送 600 个真实的工作流执行：期望 600/600。
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-queue-adapter-redis` · v0.1.1 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/plugin-queue-adapter-redis` · v0.2.0 · AGPL-3.0-only

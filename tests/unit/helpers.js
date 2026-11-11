@@ -56,7 +56,7 @@ async function bundle(entry) {
 }
 
 function redisModule() {
-  for (const c of [process.env.REDIS_CLIENT_MODULE, 'redis', '/home/claude/vendor/redis-client.cjs'].filter(Boolean)) {
+  for (const c of [process.env.REDIS_CLIENT_MODULE, 'redis'].filter(Boolean)) {
     try {
       const mod = require(c);
       if (typeof mod.createClient === 'function') return mod;

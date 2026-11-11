@@ -45,9 +45,16 @@ var require_config = __commonJS({
     var os2 = require("node:os");
     var path = require("node:path");
     var AFFINITY_MODES = Object.freeze(["off", "token", "ip"]);
-    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off" });
+    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off", heapMb: 0 });
+    var HEAP_MIN_MB = 256;
     function normalizeAffinity(value) {
       return AFFINITY_MODES.includes(value) ? value : "off";
+    }
+    function normalizeHeapMb(value) {
+      const n = Math.floor(Number(value));
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      const hostMb = Math.floor(os2.totalmem() / 1048576);
+      return Math.max(HEAP_MIN_MB, Math.min(n, Math.max(HEAP_MIN_MB, hostMb)));
     }
     function storageDir(env = process.env) {
       if (env.MULTICORE_STORAGE) return path.resolve(env.MULTICORE_STORAGE);
@@ -59,6 +66,9 @@ var require_config = __commonJS({
     }
     function statusPath(env = process.env) {
       return path.join(path.dirname(configPath(env)), "status.json");
+    }
+    function eventsPath(env = process.env) {
+      return path.join(path.dirname(configPath(env)), "events.log");
     }
     function maxWorkers(env = process.env) {
       const fromEnv = Number(env.MULTICORE_MAX_WORKERS);
@@ -78,6 +88,7 @@ var require_config = __commonJS({
           enabled: Boolean(raw.enabled),
           workers: clampWorkers(raw.workers, env),
           affinity: normalizeAffinity(raw.affinity),
+          heapMb: normalizeHeapMb(raw.heapMb),
           updatedAt: raw.updatedAt || null,
           updatedBy: raw.updatedBy || null
         };
@@ -92,6 +103,7 @@ var require_config = __commonJS({
         enabled: Boolean(config.enabled),
         workers: clampWorkers(config.workers, env),
         affinity: normalizeAffinity(config.affinity),
+        heapMb: normalizeHeapMb(config.heapMb),
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         updatedBy: config.updatedBy || null
       };
@@ -100,7 +112,20 @@ var require_config = __commonJS({
       fs.renameSync(tmp, file);
       return body;
     }
-    module2.exports = { AFFINITY_MODES, normalizeAffinity, DEFAULT_CONFIG, storageDir, configPath, statusPath, maxWorkers, clampWorkers, readConfig, writeConfig };
+    module2.exports = {
+      AFFINITY_MODES,
+      normalizeAffinity,
+      normalizeHeapMb,
+      DEFAULT_CONFIG,
+      storageDir,
+      configPath,
+      statusPath,
+      eventsPath,
+      maxWorkers,
+      clampWorkers,
+      readConfig,
+      writeConfig
+    };
   }
 });
 
@@ -113,6 +138,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 var import_node_crypto = require("node:crypto");
 var import_node_os = __toESM(require("node:os"));
+var import_node_v8 = __toESM(require("node:v8"));
 var import_node_perf_hooks = require("node:perf_hooks");
 var import_server = require("@nocobase/server");
 
@@ -139,7 +165,7 @@ function turnOffClusterMode(app, why) {
   try {
     const current = cfg.readConfig();
     if (!current.enabled) return false;
-    cfg.writeConfig({ enabled: false, workers: 1, updatedBy: `auto: ${why}` });
+    cfg.writeConfig({ ...current, enabled: false, workers: 1, updatedBy: `auto: ${why}` });
     app.logger.warn(`[multicore] ${why}: cluster mode switched off in ${cfg.configPath()}; the supervisor will return to a single process`);
     if (typeof process.send === "function" && process.env.MULTICORE_SUPERVISED === "1") {
       process.send({ cmd: "multicore", type: "apply" });
@@ -163,6 +189,8 @@ var HEARTBEAT_EVERY = 5e3;
 var HEARTBEAT_TTL = 2e4;
 var SELFTEST_CHANNEL = "multicore.selftest";
 var SELFTEST_QUEUE = "multicore.selftest";
+var MAX_LISTED_USERS = 3e3;
+var PROFILE_TTL = 6e4;
 var PluginMulticore = class extends import_server.Plugin {
   async beforeDisable() {
     turnOffClusterMode(this.app, "plugin plugin-multicore is being disabled");
@@ -171,6 +199,7 @@ var PluginMulticore = class extends import_server.Plugin {
     turnOffClusterMode(this.app, "plugin plugin-multicore is being removed");
   }
   redis;
+  redisVersion;
   heartbeatTimer;
   loopDelay = (0, import_node_perf_hooks.monitorEventLoopDelay)({ resolution: 20 });
   lastCpu = process.cpuUsage();
@@ -178,6 +207,9 @@ var PluginMulticore = class extends import_server.Plugin {
   startedAt = (/* @__PURE__ */ new Date()).toISOString();
   pending = /* @__PURE__ */ new Map();
   ipcBound = false;
+  /** WebSocket client id -> when this process first saw it (the gateway does not keep a connect time). */
+  firstSeen = /* @__PURE__ */ new Map();
+  profiles = /* @__PURE__ */ new Map();
   // ------------------------------------------------------------------ lifecycle
   async afterAdd() {
   }
@@ -185,30 +217,28 @@ var PluginMulticore = class extends import_server.Plugin {
   }
   async load() {
     this.app.acl.registerSnippet({ name: "pm.multicore", actions: ["multicore:*"] });
+    const guarded = (fn) => async (ctx, next) => {
+      try {
+        ctx.body = await fn(ctx);
+      } catch (error) {
+        ctx.throw(error.status || 500, error.message);
+      }
+      await next();
+    };
     this.app.resourceManager.define({
       name: "multicore",
       actions: {
-        status: async (ctx, next) => {
-          ctx.body = await this.buildStatus();
-          await next();
-        },
-        apply: async (ctx, next) => {
-          const values = ctx.action.params.values || {};
-          try {
-            ctx.body = await this.apply(values, ctx.state?.currentUser);
-          } catch (error) {
-            ctx.throw(error.status || 500, error.message);
-          }
-          await next();
-        },
-        selftest: async (ctx, next) => {
-          ctx.body = await this.selfTest();
-          await next();
-        },
-        whoami: async (ctx, next) => {
-          ctx.body = this.identity();
-          await next();
-        }
+        status: guarded(() => this.buildStatus()),
+        apply: guarded((ctx) => this.apply(ctx.action.params.values || {}, ctx.state?.currentUser)),
+        selftest: guarded(() => this.selfTest()),
+        whoami: guarded(async () => this.identity()),
+        // who is connected (WebSocket = an open browser tab) to one worker (?slot=N) or to all of them
+        // (&summary=1: only the totals, no user names - cheap enough to poll)
+        connections: guarded(
+          (ctx) => this.connections(ctx.action.params.slot ?? ctx.action.params.values?.slot, Boolean(ctx.action.params.summary ?? ctx.action.params.values?.summary))
+        ),
+        // zero-downtime restart of one worker ({slot: N}) or of all workers one after another ({slot: 'all'})
+        restart: guarded((ctx) => this.restart(ctx.action.params.values?.slot ?? ctx.action.params.slot, ctx.state?.currentUser))
       }
     });
     this.bindIpc();
@@ -246,7 +276,60 @@ var PluginMulticore = class extends import_server.Plugin {
       time: (/* @__PURE__ */ new Date()).toISOString()
     };
   }
-  sample() {
+  /**
+   * Browser tabs connected to THIS process. NocoBase keeps every WebSocket client of the gateway in a map and the
+   * auth plugin tags a signed-in one with `userId#<id>`; nothing is added to the connections themselves.
+   */
+  collectConnections() {
+    const now = Date.now();
+    const out = { pid: process.pid, slot: process.env.MULTICORE_SLOT ?? null, at: now, clients: 0, anonymous: 0, users: [] };
+    let clients;
+    try {
+      clients = import_server.Gateway.getInstance()?.wsServer?.webSocketClients;
+    } catch (e) {
+      clients = void 0;
+    }
+    if (!clients || typeof clients.values !== "function") return out;
+    const byUser = /* @__PURE__ */ new Map();
+    const alive = /* @__PURE__ */ new Set();
+    for (const client of clients.values()) {
+      if (!client) continue;
+      if (client.app && client.app !== this.app.name) continue;
+      out.clients += 1;
+      const id = String(client.id);
+      alive.add(id);
+      let since = this.firstSeen.get(id);
+      if (!since) {
+        since = now;
+        this.firstSeen.set(id, since);
+      }
+      let userId = null;
+      for (const tag of client.tags || []) {
+        if (typeof tag === "string" && tag.startsWith("userId#")) userId = tag.slice(7);
+      }
+      if (userId === null) {
+        out.anonymous += 1;
+        continue;
+      }
+      const forwarded = client.headers?.["x-forwarded-for"];
+      const ip = forwarded ? String(forwarded).split(",")[0].trim() : "";
+      const row = byUser.get(userId);
+      if (row) {
+        row[1] += 1;
+        if (since < row[2]) row[2] = since;
+      } else {
+        byUser.set(userId, [/^\d+$/.test(userId) ? Number(userId) : userId, 1, since, ip]);
+      }
+    }
+    for (const id of this.firstSeen.keys()) if (!alive.has(id)) this.firstSeen.delete(id);
+    out.users = [...byUser.values()];
+    if (out.users.length > MAX_LISTED_USERS) {
+      out.users.length = MAX_LISTED_USERS;
+      out.truncated = true;
+    }
+    return out;
+  }
+  sample(connections = this.collectConnections()) {
     const now = Date.now();
     const cpu = process.cpuUsage(this.lastCpu);
     const elapsedMs = Math.max(1, now - this.lastCpuAt);
@@ -260,7 +343,11 @@ var PluginMulticore = class extends import_server.Plugin {
       cpuPercent: Math.round((cpu.user + cpu.system) / 1e3 / elapsedMs * 1e3) / 10,
       rssMb: Math.round(mem.rss / 1048576),
       heapMb: Math.round(mem.heapUsed / 1048576),
+      heapLimitMb: Math.round(import_node_v8.default.getHeapStatistics().heap_size_limit / 1048576),
       loopLagMs: Math.round(lag * 10) / 10,
+      wsClients: connections.clients,
+      wsUsers: connections.users.length,
+      wsAnonymous: connections.anonymous,
       beatAt: now
     };
   }
@@ -270,19 +357,36 @@ var PluginMulticore = class extends import_server.Plugin {
     }
     return this.redis;
   }
-  workerKey() {
-    return `${keyPrefix()}:workers:${process.pid}`;
+  workerKey(pid = process.pid) {
+    return `${keyPrefix()}:workers:${pid}`;
+  }
+  /** Sorted set "pid -> time of its last heartbeat": the list of workers without scanning the whole keyspace. */
+  indexKey() {
+    return `${keyPrefix()}:workers:index`;
+  }
+  connKey(pid = process.pid) {
+    return `${keyPrefix()}:conn:${pid}`;
   }
   async beat() {
     try {
       const redis = await this.getRedis();
-      await redis.set(this.workerKey(), JSON.stringify(this.sample()), { PX: HEARTBEAT_TTL });
+      const connections = this.collectConnections();
+      const sample = this.sample(connections);
+      const now = sample.beatAt;
+      await Promise.all([
+        redis.set(this.workerKey(), JSON.stringify(sample), { PX: HEARTBEAT_TTL }),
+        redis.set(this.connKey(), JSON.stringify(connections), { PX: HEARTBEAT_TTL }),
+        redis.zAdd(this.indexKey(), { score: now, value: String(process.pid) }),
+        redis.zRemRangeByScore(this.indexKey(), 0, now - HEARTBEAT_TTL * 3),
+        redis.pExpire(this.indexKey(), HEARTBEAT_TTL * 6)
+      ]);
     } catch (error) {
       this.app.logger.warn(`[multicore] heartbeat failed: ${error?.message}`);
     }
   }
   async startHeartbeat() {
     await this.beat();
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = setInterval(() => this.beat(), HEARTBEAT_EVERY);
     this.heartbeatTimer.unref?.();
   }
@@ -290,26 +394,37 @@ var PluginMulticore = class extends import_server.Plugin {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = void 0;
     try {
-      if (this.redis?.isOpen) await this.redis.del(this.workerKey());
+      if (this.redis?.isOpen) {
+        await Promise.all([
+          this.redis.del([this.workerKey(), this.connKey()]),
+          this.redis.zRem(this.indexKey(), String(process.pid))
+        ]);
+      }
     } catch (e) {
     }
+  }
+  parse(values) {
+    const out = [];
+    for (const value of values) {
+      if (!value) continue;
+      try {
+        out.push(JSON.parse(value));
+      } catch (e) {
+      }
+    }
+    return out;
+  }
+  /** Pids of the workers that sent a heartbeat recently. */
+  async livePids(redis) {
+    return redis.zRangeByScore(this.indexKey(), Date.now() - HEARTBEAT_TTL, "+inf");
   }
   async listWorkers() {
     if (!isClusterMode() || !redisUrl()) return [this.sample()];
     const redis = await this.getRedis();
-    const keys = [];
-    for await (const batch of redis.scanIterator({ MATCH: `${keyPrefix()}:workers:*`, COUNT: 100 })) {
-      keys.push(...Array.isArray(batch) ? batch : [batch]);
-    }
-    if (!keys.length) return [this.sample()];
-    const values = await redis.mGet(keys);
-    const workers = values.filter(Boolean).map((v) => {
-      try {
-        return JSON.parse(v);
-      } catch (e) {
-        return null;
-      }
-    }).filter(Boolean);
+    const pids = await this.livePids(redis);
+    if (!pids.length) return [this.sample()];
+    const workers = this.parse(await redis.mGet(pids.map((pid) => this.workerKey(pid))));
+    if (!workers.length) return [this.sample()];
     workers.sort((a, b) => Number(a.slot ?? 0) - Number(b.slot ?? 0) || a.pid - b.pid);
     return workers;
   }
@@ -326,8 +441,11 @@ var PluginMulticore = class extends import_server.Plugin {
       pending.resolve(message);
     });
   }
-  askSupervisor(type, timeoutMs = 2500) {
-    if (typeof process.send !== "function" || process.env.MULTICORE_SUPERVISED !== "1") return Promise.resolve(null);
+  supervised() {
+    return typeof process.send === "function" && process.env.MULTICORE_SUPERVISED === "1";
+  }
+  askSupervisor(type, payload = {}, timeoutMs = 2500) {
+    if (!this.supervised()) return Promise.resolve(null);
     const reqId = (0, import_node_crypto.randomUUID)();
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -336,7 +454,7 @@ var PluginMulticore = class extends import_server.Plugin {
       }, timeoutMs);
       this.pending.set(reqId, { resolve, timer });
       try {
-        process.send({ cmd: "multicore", type, reqId });
+        process.send({ ...payload, cmd: "multicore", type, reqId });
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(reqId);
@@ -360,12 +478,42 @@ var PluginMulticore = class extends import_server.Plugin {
       const started = process.hrtime.bigint();
       await redis.ping();
       const latencyMs = Number(process.hrtime.bigint() - started) / 1e6;
-      const info = await redis.info("server");
-      const version = /redis_version:(\S+)/.exec(info)?.[1];
-      return { configured: true, ok: true, latencyMs: Math.round(latencyMs * 100) / 100, version };
+      if (!this.redisVersion) {
+        const info = await redis.info("server");
+        this.redisVersion = /redis_version:(\S+)/.exec(info)?.[1];
+      }
+      return { configured: true, ok: true, latencyMs: Math.round(latencyMs * 100) / 100, version: this.redisVersion };
     } catch (error) {
       return { configured: true, ok: false, error: error?.message };
     }
+  }
+  /**
+   * Database connection budget. Every worker has its own pool (DB_POOL_MAX), and during a rolling restart one extra
+   * worker runs next to the old ones; if that adds up to more than the database accepts, requests start failing with
+   * "too many clients" exactly when the load is high. Read once in a while, never on the hot path.
+   */
+  dbBudget = null;
+  async databaseBudget() {
+    const now = Date.now();
+    if (this.dbBudget && now - this.dbBudget.at < 3e5) return this.dbBudget.value;
+    const value = { dialect: null, poolMax: null, maxConnections: null };
+    try {
+      const sequelize = this.db?.sequelize;
+      value.dialect = sequelize?.getDialect?.() || process.env.DB_DIALECT || null;
+      const poolMax = Number(sequelize?.options?.pool?.max ?? process.env.DB_POOL_MAX);
+      value.poolMax = Number.isFinite(poolMax) && poolMax > 0 ? poolMax : null;
+      if (value.dialect === "postgres") {
+        const [rows] = await sequelize.query("SHOW max_connections");
+        value.maxConnections = Number(rows?.[0]?.max_connections) || null;
+      } else if (value.dialect === "mysql" || value.dialect === "mariadb") {
+        const [rows] = await sequelize.query("SHOW VARIABLES LIKE 'max_connections'");
+        value.maxConnections = Number(rows?.[0]?.Value) || null;
+      }
+    } catch (error) {
+      this.app.logger.debug?.(`[multicore] cannot read the database connection limit: ${error?.message}`);
+    }
+    this.dbBudget = { at: now, value };
+    return value;
   }
   adapters() {
     const app = this.app;
@@ -384,9 +532,57 @@ var PluginMulticore = class extends import_server.Plugin {
       cache: { active: (app.cacheManager?.defaultStore || process.env.CACHE_DEFAULT_STORE) === "redis" }
     };
   }
+  /**
+   * One row per worker. The supervisor is the authority on which workers exist (a worker whose event loop is blocked
+   * for a long time stops sending heartbeats to Redis, but it is still there and must stay in the table); Redis
+   * heartbeats add what only the worker itself knows (CPU, memory, connections).
+   */
+  mergeWorkers(beats, supervisor) {
+    const now = Date.now();
+    const beatByPid = new Map(beats.map((b) => [b.pid, b]));
+    const loadBySlot = new Map((supervisor?.balancer?.upstreams || []).map((u) => [u.slot, u]));
+    const rows = [];
+    if (supervisor?.workers?.length) {
+      for (const w of supervisor.workers) {
+        const beat = beatByPid.get(w.pid);
+        beatByPid.delete(w.pid);
+        const replacement = w.slot >= 1e3;
+        const load = loadBySlot.get(w.slot) || {};
+        rows.push({
+          ...beat || {},
+          pid: w.pid,
+          slot: String(replacement ? w.slot - 1e3 : w.slot),
+          replacement,
+          state: w.state,
+          mode: w.mode,
+          uptimeSec: beat?.uptimeSec ?? Math.max(0, Math.round((now - Date.parse(w.startedAt)) / 1e3)),
+          restarts: w.restarts || 0,
+          stalls: w.stalls || 0,
+          lastStall: w.lastStall || null,
+          lastExit: w.lastExit || null,
+          silentMs: w.silentMs || 0,
+          stalled: Boolean(load.stalled) || w.state === "listening" && w.silentMs > 5e3,
+          heapLimitCfgMb: w.heapMb || 0,
+          inflight: load.inflight ?? null,
+          served: load.served ?? null,
+          failed: load.failed ?? null,
+          avgMs: load.avgMs ?? null,
+          websockets: load.websockets ?? null,
+          noHeartbeat: !beat
+        });
+      }
+    }
+    for (const beat of beatByPid.values()) {
+      if (supervisor?.workers?.length) continue;
+      rows.push({ ...beat, slot: String(beat.slot ?? 0), state: "listening", restarts: 0, stalls: 0 });
+    }
+    rows.sort((a, b) => Number(a.slot) - Number(b.slot) || Number(a.replacement || 0) - Number(b.replacement || 0) || a.pid - b.pid);
+    return rows;
+  }
   async buildStatus() {
-    const [redis, workers, supervisorReply] = await Promise.all([
+    const [redis, database, beats, supervisorReply] = await Promise.all([
       this.redisHealth(),
+      this.databaseBudget(),
       this.listWorkers().catch((error) => {
         this.app.logger.warn(`[multicore] cannot list workers: ${error?.message}`);
         return [this.sample()];
@@ -401,18 +597,7 @@ var PluginMulticore = class extends import_server.Plugin {
         supervisor = null;
       }
     }
-    const slotByPid = new Map((supervisor?.workers || []).map((w) => [w.pid, w.slot]));
-    const loadBySlot = new Map((supervisor?.balancer?.upstreams || []).map((u) => [u.slot, u]));
-    for (const worker of workers) {
-      if (slotByPid.has(worker.pid)) worker.slot = String(slotByPid.get(worker.pid));
-      const load = loadBySlot.get(Number(worker.slot));
-      if (load) {
-        worker.inflight = load.inflight;
-        worker.served = load.served;
-        worker.stalled = load.stalled;
-      }
-    }
-    workers.sort((a, b) => Number(a.slot ?? 0) - Number(b.slot ?? 0) || a.pid - b.pid);
+    const workers = this.mergeWorkers(beats, supervisor);
     const config = cfg2.readConfig();
     return {
       self: this.identity(),
@@ -422,17 +607,102 @@ var PluginMulticore = class extends import_server.Plugin {
       clusterModeActive: isClusterMode(),
       config,
       redis,
+      database,
       adapters: this.adapters(),
       supervisor,
       workers,
+      online: {
+        connections: workers.reduce((sum, w) => sum + (w.wsClients || 0), 0)
+      },
       serverTime: (/* @__PURE__ */ new Date()).toISOString()
     };
   }
-  // ------------------------------------------------------------------ apply
+  // ------------------------------------------------------------------ who is connected
+  async userProfiles(ids) {
+    const now = Date.now();
+    const missing = ids.filter((id) => {
+      const hit = this.profiles.get(String(id));
+      return !hit || now - hit.at > PROFILE_TTL;
+    });
+    if (missing.length) {
+      try {
+        const records = await this.db.getRepository("users").find({ filter: { id: { $in: missing } }, fields: ["id", "nickname", "username"] });
+        for (const record of records) {
+          this.profiles.set(String(record.get("id")), { nickname: record.get("nickname"), username: record.get("username"), at: now });
+        }
+      } catch (error) {
+        this.app.logger.warn(`[multicore] cannot load user names: ${error?.message}`);
+      }
+      for (const id of missing) if (!this.profiles.has(String(id))) this.profiles.set(String(id), { at: now });
+      if (this.profiles.size > 2e4) this.profiles.clear();
+    }
+    return this.profiles;
+  }
+  /** Users connected to one worker (slot given) or to the whole cluster: every worker publishes its own list. */
+  async connections(slotParam, summaryOnly = false) {
+    let lists;
+    if (isClusterMode() && redisUrl()) {
+      const redis = await this.getRedis();
+      const pids = await this.livePids(redis);
+      lists = pids.length ? this.parse(await redis.mGet(pids.map((pid) => this.connKey(pid)))) : [];
+    } else {
+      lists = [this.collectConnections()];
+    }
+    const supervisor = (await this.askSupervisor("status"))?.data;
+    const slotByPid = new Map((supervisor?.workers || []).map((w) => [w.pid, w.slot >= 1e3 ? w.slot - 1e3 : w.slot]));
+    for (const list of lists) {
+      const raw = slotByPid.has(list.pid) ? slotByPid.get(list.pid) : Number(list.slot ?? 0);
+      list.slot = String(Number(raw) >= 1e3 ? Number(raw) - 1e3 : raw);
+    }
+    const wanted = slotParam === void 0 || slotParam === null || slotParam === "" || slotParam === "all" ? null : String(slotParam);
+    const selected = wanted === null ? lists : lists.filter((l) => l.slot === wanted);
+    const byUser = /* @__PURE__ */ new Map();
+    for (const list of selected) {
+      for (const [id, tabs, since, ip] of list.users) {
+        const key = String(id);
+        let user = byUser.get(key);
+        if (!user) byUser.set(key, user = { id, tabs: 0, since, ip, workers: [] });
+        user.tabs += tabs;
+        if (since < user.since) user.since = since;
+        if (!user.ip && ip) user.ip = ip;
+        user.workers.push({ slot: list.slot, tabs });
+      }
+    }
+    const totals = {
+      users: byUser.size,
+      connections: selected.reduce((sum, l) => sum + l.clients, 0),
+      anonymous: selected.reduce((sum, l) => sum + l.anonymous, 0)
+    };
+    if (summaryOnly) return { slot: wanted, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), totals };
+    const profiles = await this.userProfiles([...byUser.values()].map((u) => u.id));
+    const users = [...byUser.values()].map((u) => {
+      const profile = profiles.get(String(u.id));
+      return { ...u, nickname: profile?.nickname || null, username: profile?.username || null, since: new Date(u.since).toISOString() };
+    });
+    users.sort((a, b) => String(a.nickname || a.username || a.id).localeCompare(String(b.nickname || b.username || b.id)));
+    return {
+      slot: wanted,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      totals,
+      workers: selected.map((l) => ({ slot: l.slot, pid: l.pid, connections: l.clients, users: l.users.length, anonymous: l.anonymous, truncated: Boolean(l.truncated) })).sort((a, b) => Number(a.slot) - Number(b.slot)),
+      users
+    };
+  }
+  // ------------------------------------------------------------------ apply / restart
+  who(user) {
+    return user?.username || user?.nickname || user?.id || null;
+  }
+  fail(status, message) {
+    const error = new Error(message);
+    error.status = status;
+    throw error;
+  }
   async apply(values, user) {
     const enabled = Boolean(values.enabled);
     const workers = cfg2.clampWorkers(values.workers ?? 1);
     const affinity = cfg2.normalizeAffinity(values.affinity);
+    const current = cfg2.readConfig();
+    const heapMb = values.heapMb === void 0 ? current.heapMb : cfg2.normalizeHeapMb(values.heapMb);
     const problems = [];
     if (enabled) {
       const health = await this.redisHealth();
@@ -445,19 +715,26 @@ var PluginMulticore = class extends import_server.Plugin {
         problems.push("The application is not running under nocobase-multicore (see docs/OPERATIONS.md)");
       }
     }
-    if (problems.length) {
-      const error = new Error(problems.join("; "));
-      error.status = 400;
-      throw error;
-    }
-    const saved = cfg2.writeConfig({ enabled, workers, affinity, updatedBy: user?.username || user?.nickname || user?.id || null });
+    if (problems.length) this.fail(400, problems.join("; "));
+    const saved = cfg2.writeConfig({ enabled, workers, affinity, heapMb, updatedBy: this.who(user) });
     this.app.logger.info(`[multicore] config saved: ${JSON.stringify(saved)}`);
-    const ack = await this.askSupervisor("apply");
+    const ack = await this.askSupervisor("apply", { by: this.who(user) });
     return {
       config: saved,
       applied: Boolean(ack),
       message: ack ? "Supervisor notified: workers are being started/stopped (rolling, a few seconds to a minute)." : "Config saved, but the supervisor did not answer. It re-reads the config within ~10 seconds (or on SIGHUP)."
     };
+  }
+  /** Rolling (zero-downtime) restart: the supervisor starts a replacement first and only then drains the old worker. */
+  async restart(slotParam, user) {
+    if (!this.supervised()) this.fail(400, "The application is not running under nocobase-multicore, there is no supervisor to restart workers");
+    const slot = slotParam === "all" ? "all" : Number(slotParam);
+    if (slot !== "all" && (!Number.isInteger(slot) || slot < 0)) this.fail(400, 'Pass {"slot": <number>} or {"slot": "all"}');
+    const ack = await this.askSupervisor("restart", { slot, by: this.who(user) });
+    if (!ack) this.fail(504, "The supervisor did not answer");
+    if (!ack.accepted) this.fail(404, `There is no worker in slot ${slot}`);
+    this.app.logger.info(`[multicore] restart of ${slot === "all" ? "all workers" : `slot ${slot}`} requested by ${this.who(user)}`);
+    return { accepted: true, slot };
   }
   // ------------------------------------------------------------------ distributed self test
   async onSelfTestMessage(message) {

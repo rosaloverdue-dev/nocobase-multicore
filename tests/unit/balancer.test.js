@@ -404,8 +404,14 @@ test('event-loop lag reported by a worker shifts new requests to the others', as
   t.bal.beat(t.sa, 0); // recovered
   for (let i = 0; i < 10; i += 1) seen[JSON.parse((await get(t.port, '/')).body).name] += 1;
   assert.equal(seen.A, 5);
+  // a few milliseconds of timer jitter are not "lag": an idle cluster is still shared evenly
+  t.bal.beat(t.sa, 7);
+  t.bal.beat(t.sb, 1);
+  const jitter = { A: 0, B: 0 };
+  for (let i = 0; i < 20; i += 1) jitter[JSON.parse((await get(t.port, '/')).body).name] += 1;
+  assert.deepEqual(jitter, { A: 10, B: 10 });
   const snap = t.bal.snapshot();
-  assert.equal(snap.upstreams[0].served + snap.upstreams[1].served, 20);
+  assert.equal(snap.upstreams[0].served + snap.upstreams[1].served, 40);
   assert.ok(snap.upstreams.every((u) => u.avgMs >= 0 && u.failed === 0));
   t.stop();
 });
@@ -442,4 +448,39 @@ test('a websocket is connected to another worker when the first one refuses', as
   bal.close();
   live.server.close();
   live.server.closeAllConnections?.();
+});
+
+test('requests longer than the idle-socket timeout are not cut; idle sockets to the workers are closed', async () => {
+  const slowly = (req, res) => {
+    if (req.url === '/slow') return setTimeout(() => res.end('slow-ok'), 900);
+    if (req.url === '/stream') {
+      res.write('a');
+      setTimeout(() => res.write('b'), 700);
+      return setTimeout(() => res.end('c'), 1400);
+    }
+    return res.end('warm');
+  };
+  const a = await upstream('A', slowly);
+  a.server.keepAliveTimeout = 600_000;
+  const bal = new Balancer({ freeSocketMs: 300 });
+  const addr = await bal.listen(0, '127.0.0.1');
+  const slot = { id: 0 };
+  bal.add(slot, a.port);
+  const beat = setInterval(() => bal.beat(slot, 0), 100);
+  await get(addr.port, '/warm');
+  await get(addr.port, '/warm'); // the long ones below run on reused keep-alive sockets
+  const [slow, stream] = await Promise.all([get(addr.port, '/slow'), get(addr.port, '/stream')]);
+  assert.equal(slow.body, 'slow-ok');
+  assert.equal(stream.body, 'abc');
+  const snap = bal.snapshot();
+  assert.deepEqual([snap.errors, snap.retries, snap.aborted, snap.upstreams[0].inflight], [0, 0, 0, 0]);
+  const free = () => Object.values(bal.ups[0].agent.freeSockets).reduce((n, list) => n + list.length, 0);
+  await get(addr.port, '/warm');
+  assert.ok(free() >= 1, 'the connection is kept for reuse');
+  await sleep(600);
+  assert.equal(free(), 0, 'and closed by the balancer once it has been idle for freeSocketMs');
+  clearInterval(beat);
+  bal.close();
+  a.server.close();
+  a.server.closeAllConnections?.();
 });

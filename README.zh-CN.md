@@ -23,14 +23,14 @@ NocoBase（社区版）只有一个 Node.js 进程，也就是**只用一个 CPU
 | 安装 | — | 一条命令（Docker Compose：自动带 Redis） |
 | 卸载 | — | 一条命令，恢复原生 NocoBase；移除插件会自动关闭集群 |
 
-> 状态 `0.1.2`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
+> 状态 `0.2.0`，已针对 NocoBase **2.2.33** 验证（见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)）。继续开发的 AI 代理请先阅读 [AGENTS.md](AGENTS.md)。
 
 ## 快速开始
 
 NocoBase 运行在 **Docker Compose** 中？一条命令（在 Docker 主机上执行；`<container>` 为 `docker ps` 中的应用容器名）：
 
 ```bash
-tar xzf nocobase-multicore-bundle-0.1.2.tgz && cd nocobase-multicore-bundle-0.1.2
+tar xzf nocobase-multicore-bundle-0.2.0.tgz && cd nocobase-multicore-bundle-0.2.0
 ./install.sh --docker <container> --workers 2
 ```
 
@@ -41,7 +41,7 @@ NocoBase 从项目目录运行（不用 Docker）？
 ./install.sh --local /path/to/nocobase --redis-url redis://127.0.0.1:6379/0
 cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore.js   # 代替 `yarn start`
 ```
-请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.1.2`](releases/v0.1.2) 中，或自行构建：`node scripts/build.mjs`）。
+请从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)下载 `nocobase-multicore-bundle-<版本>.tgz`（相同文件也在 [`releases/v0.2.0`](releases/v0.2.0) 中，或自行构建：`node scripts/build.mjs`）。
 
 ## 包含的内容
 
@@ -78,9 +78,11 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 内置负载均衡器解决了这个问题：
 
 * 每个工作进程监听**私有回环端口**，公共端口由守护进程持有；
-* 每个 HTTP 请求交给**处理中请求最少**的工作进程；停止响应心跳（事件循环被阻塞）的进程在有其他可用进程时会被绕开；
+* 每个 HTTP 请求交给**负载分值最低**的工作进程：处理中的请求数，加上该进程每秒上报两次的事件循环延迟；1.5 秒没有心跳（事件循环被阻塞）的进程在有其他可用进程时会被绕开；
 * WebSocket 被转发到连接数最少的进程，并添加 `X-Forwarded-For`；
-* 无请求体的请求在连接失败时会在另一个进程上重试一次；没有可用进程时返回带 `Retry-After` 的 JSON `503`；
+* 客户端已离开（用户关闭了页面）的请求会在其工作进程上取消，并且**绝不会**在另一个进程上再次执行；
+* 如果某个工作进程无法连接，或者恰好在发送请求的瞬间关闭了保持的连接，请求会**重放一次**——读请求总是重放，写请求（`POST` 等）只有在确定该进程没有处理过时才重放；为此 1 MiB 以内的请求体会暂存在内存中，更大的上传仍按流式转发。没有可用进程时返回带 `Retry-After` 的 JSON `503`；
+* 工作进程把空闲连接保持 10 分钟，而负载均衡器在 8 秒后关闭它们，因此从长时间卡顿中恢复的进程不会丢掉正在等待它的请求；
 * 滚动替换时，旧进程先退出负载均衡，等其处理中的请求完成后才停止。
 
 实时数据（每个进程的处理中 / 已处理请求数）显示在管理页面和 `storage/multicore/status.json` 中。`MULTICORE_BALANCER=off` 可恢复为普通共享端口模式。
@@ -101,7 +103,7 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 
 ### 1. 一条命令 — `install.sh`（推荐）
 
-从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.1.2`](releases/v0.1.2)）下载安装包，解压后运行：
+从[最新发布版本](https://github.com/rosaloverdue-dev/nocobase-multicore/releases/latest)（或 [`releases/v0.2.0`](releases/v0.2.0)）下载安装包，解压后运行：
 
 ```bash
 ./install.sh --docker <容器名> [--workers N]               # Docker（Compose：自动配置 Redis 和入口）
@@ -129,9 +131,9 @@ cd /path/to/nocobase && node storage/multicore/supervisor/bin/nocobase-multicore
 # 在 NocoBase 容器 / 项目目录内
 for p in pubsub-adapter-redis lock-adapter-redis queue-adapter-redis worker-id-allocator-redis multicore; do
   mkdir -p storage/plugins/@nb-multicore/plugin-$p
-  tar xzf nb-multicore-plugin-$p-0.1.2.tgz -C storage/plugins/@nb-multicore/plugin-$p
+  tar xzf nb-multicore-plugin-$p-0.2.0.tgz -C storage/plugins/@nb-multicore/plugin-$p
 done
-mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.1.2.tgz -C storage/multicore/supervisor
+mkdir -p storage/multicore/supervisor && tar xzf nocobase-multicore-supervisor-0.2.0.tgz -C storage/multicore/supervisor
 yarn nocobase postinstall          # 把 storage/plugins 链接到 node_modules
 yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/plugin-lock-adapter-redis \
   @nb-multicore/plugin-queue-adapter-redis @nb-multicore/plugin-worker-id-allocator-redis @nb-multicore/plugin-multicore
@@ -152,7 +154,14 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 *设置 → 多核模式*（英文、俄文和简体中文；其他界面语言回退为英文）：
 
 * **开关**和**工作进程数量**（旁边显示服务器 CPU 核心数）；点击“应用”执行滚动替换；
-* **实时进程表**：槽位、PID、状态、运行时间、CPU %、内存、事件循环延迟、**处理中 / 已处理请求数**、实例 ID、主机；
+* **工作进程亲和**（关闭 / 按登录令牌 / 按客户端 IP），立即生效；
+* **工作进程内存上限**（`--max-old-space-size`，MB；留空 = Node 默认值或 `NODE_OPTIONS`），通过滚动替换生效；
+* **概览**：工作进程数、在线用户、打开的标签页、每秒请求数、负载均衡错误、服务器内存；
+* **实时工作进程表**：槽位、PID、状态（运行中 / 无响应 N 秒 / 启动中 / 替换中）、运行时间、CPU %、内存（进程以及 JavaScript 堆/上限）、事件循环延迟、处理中 / 已处理 / 每秒请求数、平均响应时间、打开的标签页、**用户**（点击数字查看谁连接在该进程上）、崩溃和卡顿次数及最近一次的原因。事件循环被阻塞的进程会保留在表中并被标记，而不是消失；
+* 每个工作进程的**“重启”**按钮和**“逐个重启全部”**：不中断服务（先启动替换进程，旧进程处理完请求后退出）；
+* **谁在线**：可搜索的窗口——用户、登录名、打开的标签页数、连接时间、IP 地址以及标签页所在的工作进程（取自 NocoBase 自身的 WebSocket 连接，不额外保存任何数据）；
+* **事件日志**：工作进程的启动、退出及原因（内存不足、被杀死、错误码）、卡顿及时长、重启及操作人、“Bad gateway” 响应。同时写入 `storage/multicore/events.log`；
+* 当数据库无法接受 `(工作进程数 + 1) × DB_POOL_MAX` 个连接时给出**警告**；
 * **适配器状态**（pub/sub、锁、队列、工作进程 ID、缓存）以及 Redis 延迟与版本；
 * **集群自检**：pub/sub 送达每个进程，锁能排斥其他进程，20 个队列任务各执行一次，工作进程 ID 互不相同。
 
@@ -180,8 +189,9 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 | `MULTICORE_APP_ENTRY` | `@nocobase/app/lib/index.js` 的路径（自动检测）。 |
 | `MULTICORE_QUICKSTART` | `0` = 首次启动时不执行 `--quickstart`。 |
 | `MULTICORE_EXIT_GRACE_MS` | 停止中的工作进程在 `process.exit` 之前的时限（默认 10000）。 |
+| `MULTICORE_KEEPALIVE_MS` | 工作进程保持来自负载均衡器的空闲连接的时间（默认 600000）。应远大于负载均衡器的 8 秒。 |
 | `MULTICORE_REDIS_PREFIX`、`MULTICORE_NAMESPACE` | Redis 键前缀 `<前缀>:<命名空间>`（默认 `mcore:<数据库名>`）。 |
-| `MULTICORE_STORAGE`、`MULTICORE_CONFIG` | `config.json` / `status.json` 所在位置（默认 `storage/multicore/`）。 |
+| `MULTICORE_STORAGE`、`MULTICORE_CONFIG` | `config.json` / `status.json` / `events.log` 所在位置（默认 `storage/multicore/`）。 |
 | `CORS_ORIGIN_WHITELIST` | NocoBase 自带：通过其他主机名或代理登录时允许的来源。 |
 
 ## 工作流、安全与卸载（常见问题）
@@ -219,6 +229,10 @@ yarn nocobase pm enable @nb-multicore/plugin-pubsub-adapter-redis @nb-multicore/
 | 全屏错误 “Script error for @nb-multicore/…” | 旧版本缺少客户端占位文件；请使用本发布版中的文件。 |
 | 界面中已启用插件，但适配器未生效 | 重启容器（集群中只有一个进程看到了该变更）。 |
 | 日志出现 `… adapter not activated: REDIS_URL is not set` | 单进程模式或没有 Redis：属预期情况，没有任何问题。 |
+| 几乎所有请求都落到一个工作进程上，其他进程的“处理中的请求”是一个很大的固定值 | ≤ 0.1.2 版本的缺陷（被浏览器取消的请求没有被释放）。请升级到 0.2.0。 |
+| 高负载时出现 `Bad gateway: the application worker did not answer`，但没有进程重启 | ≤ 0.1.2 版本：繁忙超过 5 秒的进程会丢掉等待它的写请求。请升级到 0.2.0；仍然出现的情况及原因可在“事件日志”中看到。 |
+| 工作进程自己重启 | 查看“事件日志”：“内存不足” → 调大“工作进程内存上限”；“被杀死” → 服务器本身内存不足（减少进程数或增加内存）。 |
+| 数据库报 `too many clients already` / `Too many connections` | 每个工作进程都有自己的连接池：`(工作进程数 + 1) × DB_POOL_MAX` 必须小于数据库的 `max_connections`。设置页面会对此发出警告。 |
 
 ## 各部分详细说明
 

@@ -26,6 +26,7 @@ const crypto = require('node:crypto');
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'expect']);
 const IDEMPOTENT = new Set(['GET', 'HEAD', 'OPTIONS']);
 const EMPTY = Buffer.alloc(0);
+const LAG_NOISE_MS = 50;
 const NOT_READY = '{"errors":[{"message":"The application is starting or restarting, please retry in a moment.","code":"APP_NOT_READY"}]}';
 const BAD_GATEWAY = '{"errors":[{"message":"Bad gateway: the application worker did not answer.","code":"BAD_GATEWAY"}]}';
 
@@ -175,9 +176,12 @@ class Balancer {
   /**
    * Load score of a worker, lower is better: requests in flight, plus its event-loop lag (100 ms of lag weighs like
    * one extra request, capped), plus a huge penalty while it does not answer heartbeats at all.
+   * Lag below LAG_NOISE_MS is ordinary timer jitter and counts as zero: otherwise a worker whose timer fired 1 ms
+   * late would lose every tie and an idle cluster would be balanced by noise instead of evenly.
    */
   score(up, isWs, now) {
-    return up.inflight + (isWs ? up.sockets : up.sockets * 0.001) + Math.min(up.lag / 100, 10) + (this.isStalled(up, now) ? 1000 : 0);
+    const lagPenalty = up.lag >= LAG_NOISE_MS ? Math.min(up.lag / 100, 10) : 0;
+    return up.inflight + (isWs ? up.sockets : up.sockets * 0.001) + lagPenalty + (this.isStalled(up, now) ? 1000 : 0);
   }
 
   pick(isWs, exclude, key) {
@@ -352,7 +356,10 @@ class Balancer {
           if (HOP_BY_HOP.has(key.toLowerCase())) continue;
           res.appendHeader(key, pres.rawHeaders[i + 1]);
         }
-        pres.on('error', () => res.destroy());
+        pres.on('error', () => {
+          ctx.done = true; // our own teardown below is not "the client went away"
+          res.destroy();
+        });
         pres.once('close', release); // emitted after 'end' as well: the worker is done with this request
         pres.pipe(res);
       },
@@ -365,6 +372,7 @@ class Balancer {
       if (ctx.clientGone || ctx.done) return;
       up.failed += 1;
       if (ctx.responded) {
+        ctx.done = true;
         res.destroy(); // the worker died in the middle of the answer
         return;
       }

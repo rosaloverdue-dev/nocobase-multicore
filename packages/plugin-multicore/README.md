@@ -15,6 +15,13 @@ as an API, and watches the cluster. It does not move any NocoBase function itsel
 * **Live table of processes**: slot, PID, state, uptime, CPU %, memory, event-loop lag, snowflake worker id, host. Data comes from a heartbeat every 5 s through Redis (TTL 20 s).
 * **Adapter table**: for every adapter the plugin state (enabled/disabled/missing) and whether the adapter is really in effect in this process.
 * **Cluster self-test** (button *Run check*, or `POST /api/multicore:selftest`): (1) a pub/sub message reaches every worker, (2) a held lock keeps every other worker out, (3) 20 queue jobs are processed exactly once each, (4) every worker has its own snowflake worker id.
+* **Worker memory limit** (`--max-old-space-size`) next to the switch; a change replaces the workers one by one.
+* **Overview tiles**: workers, users online, open tabs, requests per second, balancer errors, server memory.
+* **Restart** of one worker or of all workers one by one — zero-downtime (`POST /api/multicore:restart {"slot": 1 | "all"}`).
+* **Who is connected**: click the number of users of a worker (or *show* on the tile) — user, login, open tabs, connected since, IP, workers. Taken from the WebSocket connections NocoBase already keeps (`GET /api/multicore:connections?slot=N`).
+* **Event journal**: worker starts, exits with the reason, stalls with the duration, restarts, Bad-gateway answers.
+* A worker with a blocked event loop stays in the table, marked *not responding for N s*; crashes and stalls are counted per worker.
+* **Warning** when `(workers + 1) × DB_POOL_MAX` exceeds the database's `max_connections`.
 * **API** (ACL snippet `pm.multicore`, root has it): `GET /api/multicore:status`, `POST /api/multicore:apply {"enabled":true,"workers":3}`, `POST /api/multicore:selftest`, `GET /api/multicore:whoami`.
 * **Safeguard**: if this or any adapter plugin is disabled or removed while the cluster is on, the plugin writes `enabled:false` to the config and tells the supervisor, which returns to one process — the site never runs with a half-installed cluster.
 
@@ -39,4 +46,4 @@ curl -s $BASE/api/multicore:status -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
-Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-multicore` · v0.1.1 · AGPL-3.0-only
+Part of [nocobase-multicore](../../README.md). Package: `@nb-multicore/plugin-multicore` · v0.2.0 · AGPL-3.0-only

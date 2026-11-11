@@ -15,6 +15,10 @@ NocoBase 社区版只有一个 Node.js 进程，也就是只用到一个 CPU 核
 * 切换模式或调整进程数时**滚动替换**：先启动新进程，等它真正能接收请求后，旧进程退出分发队列（`disconnect`），再收到 `SIGTERM`（30 秒宽限，之后 `SIGKILL`）。用户不会看到错误。
 * 扩容与缩容（缩容时先停止编号最大的槽位）。
 * 崩溃的工作进程会按指数退避自动重启（1 秒 → 30 秒）。
+* **内置负载均衡器**（默认）：每个工作进程监听私有回环端口，每个请求交给负载分值最低的进程（处理中的请求 + 事件循环延迟）；被客户端取消的请求绝不会在别处再次执行；只有确定第一个进程没有处理过时才会重放请求。`MULTICORE_BALANCER=off` 恢复为共享端口轮询。
+* **不中断服务的手动重启**：重启单个工作进程或逐个重启全部（由管理页面通过 IPC 发起）；替换进程启动失败时保留旧进程。
+* 来自配置的**工作进程堆上限**（`heapMb` → `--max-old-space-size`，优先于 `NODE_OPTIONS`）。
+* **日志** `storage/multicore/events.log`：工作进程退出及原因（内存不足 / 被杀死 / 退出码）、5 秒以上的事件循环卡顿、重启、“Bad gateway” 响应。
 * 写入 `storage/multicore/status.json`（模式、进程、状态），读取 `storage/multicore/config.json`（管理页面保存的设置）。配置会在收到工作进程的 IPC 消息、`SIGHUP` 信号时重新读取，并且每 10 秒检查一次。
 * 向工作进程传递环境变量：`MULTICORE_SUPERVISED=1`、`MULTICORE_MODE=cluster|single`、`MULTICORE_SLOT`，集群模式下还有 `REDIS_URL`、`CACHE_DEFAULT_STORE=redis`、`CACHE_REDIS_URL`。
 * `lib/worker-entry.js` 是每个工作进程实际执行的入口：运行 NocoBase CLI 的 `initEnv()`（加载 `.env`），推迟打开 HTTP 端口直到应用进入 `running` 状态（因此不会有请求收到 “503 app is starting”），并保证收到 `SIGTERM` 后进程会退出。
@@ -32,6 +36,8 @@ NocoBase 社区版只有一个 Node.js 进程，也就是只用到一个 CPU 核
 | `MULTICORE_MAX_WORKERS` | `min(核心数×2, 32)`，至少 2 | 工作进程数量上限。 |
 | `MULTICORE_QUICKSTART` | 开启 | `0` = 首次启动时不执行 `--quickstart`。 |
 | `MULTICORE_EXIT_GRACE_MS` | `10000` | 工作进程在 `process.exit` 之前允许的停止时间。 |
+| `MULTICORE_KEEPALIVE_MS` | `600000` | 工作进程保持来自负载均衡器的空闲连接的时间（负载均衡器会在 8 秒后关闭它们）。 |
+| `MULTICORE_BALANCER` | 开启 | `off` = 使用共享端口和普通轮询，而不是负载均衡器。 |
 | `MULTICORE_APP_ENTRY` | 自动 | `@nocobase/app/lib/index.js` 的路径。 |
 | `MULTICORE_REDIS_PREFIX`、`MULTICORE_NAMESPACE` | `mcore`、数据库名 | Redis 键前缀（同一 Redis 上运行多个集群）。 |
 | `MULTICORE_DEFER_LISTEN` | 开启 | `0` = 立即打开端口（不推荐）。 |
@@ -50,4 +56,4 @@ docker logs <容器> 2>&1 | grep '\[multicore\]'           # 守护进程事件
 ```
 
 ---
-属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/multicore-supervisor` · v0.1.1 · AGPL-3.0-only
+属于 [nocobase-multicore](../../README.zh-CN.md) 项目。包名：`@nb-multicore/multicore-supervisor` · v0.2.0 · AGPL-3.0-only

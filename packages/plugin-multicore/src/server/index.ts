@@ -75,7 +75,10 @@ export class PluginMulticore extends Plugin {
         selftest: guarded(() => this.selfTest()),
         whoami: guarded(async () => this.identity()),
         // who is connected (WebSocket = an open browser tab) to one worker (?slot=N) or to all of them
-        connections: guarded((ctx) => this.connections(ctx.action.params.slot ?? ctx.action.params.values?.slot)),
+        // (&summary=1: only the totals, no user names - cheap enough to poll)
+        connections: guarded((ctx) =>
+          this.connections(ctx.action.params.slot ?? ctx.action.params.values?.slot, Boolean(ctx.action.params.summary ?? ctx.action.params.values?.summary)),
+        ),
         // zero-downtime restart of one worker ({slot: N}) or of all workers one after another ({slot: 'all'})
         restart: guarded((ctx) => this.restart(ctx.action.params.values?.slot ?? ctx.action.params.slot, ctx.state?.currentUser)),
       },
@@ -355,6 +358,36 @@ export class PluginMulticore extends Plugin {
     }
   }
 
+  /**
+   * Database connection budget. Every worker has its own pool (DB_POOL_MAX), and during a rolling restart one extra
+   * worker runs next to the old ones; if that adds up to more than the database accepts, requests start failing with
+   * "too many clients" exactly when the load is high. Read once in a while, never on the hot path.
+   */
+  private dbBudget: { at: number; value: any } | null = null;
+
+  private async databaseBudget() {
+    const now = Date.now();
+    if (this.dbBudget && now - this.dbBudget.at < 300_000) return this.dbBudget.value;
+    const value: any = { dialect: null, poolMax: null, maxConnections: null };
+    try {
+      const sequelize: any = (this.db as any)?.sequelize;
+      value.dialect = sequelize?.getDialect?.() || process.env.DB_DIALECT || null;
+      const poolMax = Number(sequelize?.options?.pool?.max ?? process.env.DB_POOL_MAX);
+      value.poolMax = Number.isFinite(poolMax) && poolMax > 0 ? poolMax : null;
+      if (value.dialect === 'postgres') {
+        const [rows] = await sequelize.query('SHOW max_connections');
+        value.maxConnections = Number(rows?.[0]?.max_connections) || null;
+      } else if (value.dialect === 'mysql' || value.dialect === 'mariadb') {
+        const [rows] = await sequelize.query("SHOW VARIABLES LIKE 'max_connections'");
+        value.maxConnections = Number(rows?.[0]?.Value) || null;
+      }
+    } catch (error: any) {
+      this.app.logger.debug?.(`[multicore] cannot read the database connection limit: ${error?.message}`);
+    }
+    this.dbBudget = { at: now, value };
+    return value;
+  }
+
   private adapters() {
     const app: any = this.app;
     return {
@@ -426,8 +459,9 @@ export class PluginMulticore extends Plugin {
   }
 
   private async buildStatus() {
-    const [redis, beats, supervisorReply] = await Promise.all([
+    const [redis, database, beats, supervisorReply] = await Promise.all([
       this.redisHealth(),
+      this.databaseBudget(),
       this.listWorkers().catch((error) => {
         this.app.logger.warn(`[multicore] cannot list workers: ${error?.message}`);
         return [this.sample()];
@@ -453,6 +487,7 @@ export class PluginMulticore extends Plugin {
       clusterModeActive: isClusterMode(),
       config,
       redis,
+      database,
       adapters: this.adapters(),
       supervisor,
       workers,
@@ -487,7 +522,7 @@ export class PluginMulticore extends Plugin {
   }
 
   /** Users connected to one worker (slot given) or to the whole cluster: every worker publishes its own list. */
-  private async connections(slotParam: any) {
+  private async connections(slotParam: any, summaryOnly = false) {
     let lists: Connections[];
     if (isClusterMode() && redisUrl()) {
       const redis = await this.getRedis();
@@ -518,6 +553,12 @@ export class PluginMulticore extends Plugin {
         user.workers.push({ slot: list.slot, tabs });
       }
     }
+    const totals = {
+      users: byUser.size,
+      connections: selected.reduce((sum, l) => sum + l.clients, 0),
+      anonymous: selected.reduce((sum, l) => sum + l.anonymous, 0),
+    };
+    if (summaryOnly) return { slot: wanted, updatedAt: new Date().toISOString(), totals };
     const profiles = await this.userProfiles([...byUser.values()].map((u) => u.id));
     const users = [...byUser.values()].map((u) => {
       const profile = profiles.get(String(u.id));
@@ -527,11 +568,7 @@ export class PluginMulticore extends Plugin {
     return {
       slot: wanted,
       updatedAt: new Date().toISOString(),
-      totals: {
-        users: users.length,
-        connections: selected.reduce((sum, l) => sum + l.clients, 0),
-        anonymous: selected.reduce((sum, l) => sum + l.anonymous, 0),
-      },
+      totals,
       workers: selected
         .map((l) => ({ slot: l.slot, pid: l.pid, connections: l.clients, users: l.users.length, anonymous: l.anonymous, truncated: Boolean(l.truncated) }))
         .sort((a, b) => Number(a.slot) - Number(b.slot)),

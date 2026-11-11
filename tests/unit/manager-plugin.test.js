@@ -49,6 +49,11 @@ async function boot() {
     on: (name, fn) => { handlers[name] = fn; },
     redisConnectionManager: connectionManager(),
     db: {
+      sequelize: {
+        getDialect: () => 'postgres',
+        options: { pool: { max: 20 } },
+        query: async (sql) => (/max_connections/.test(sql) ? [[{ max_connections: '100' }]] : [[]]),
+      },
       getRepository: () => ({
         find: async ({ filter }) => USERS.filter((u) => filter.id.$in.map(String).includes(String(u.id))).map((u) => ({ get: (k) => u[k] })),
       }),
@@ -109,6 +114,7 @@ test('manager plugin: heartbeat, worker list, who is connected, restart, apply',
     assert.equal(status.online.connections, 7);
     assert.equal(status.redis.ok, true);
     assert.equal(status.config.heapMb, 0);
+    assert.deepEqual(status.database, { dialect: 'postgres', poolMax: 20, maxConnections: 100 });
   });
 
   await t.test('who is connected: whole cluster, one worker, names resolved', async () => {
@@ -121,6 +127,10 @@ test('manager plugin: heartbeat, worker list, who is connected, restart, apply',
     assert.ok(Date.now() - Date.parse(anna.since) >= 59000, 'earliest connection wins');
     assert.equal(all.users.find((u) => u.id === 9).username, 'bob');
     assert.deepEqual(all.workers.map((w) => [w.slot, w.connections, w.users]), [['0', 4, 2], ['1', 3, 2]]);
+
+    const summary = await call('connections', { summary: '1' });
+    assert.deepEqual(summary.totals, all.totals);
+    assert.equal(summary.users, undefined, 'the summary carries no user list');
 
     const one = await call('connections', { slot: '1' });
     assert.equal(one.slot, '1');

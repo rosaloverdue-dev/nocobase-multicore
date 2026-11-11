@@ -35,9 +35,16 @@ var require_config = __commonJS({
     var os = require("node:os");
     var path = require("node:path");
     var AFFINITY_MODES = Object.freeze(["off", "token", "ip"]);
-    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off" });
+    var DEFAULT_CONFIG = Object.freeze({ enabled: false, workers: 1, affinity: "off", heapMb: 0 });
+    var HEAP_MIN_MB = 256;
     function normalizeAffinity(value) {
       return AFFINITY_MODES.includes(value) ? value : "off";
+    }
+    function normalizeHeapMb(value) {
+      const n = Math.floor(Number(value));
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      const hostMb = Math.floor(os.totalmem() / 1048576);
+      return Math.max(HEAP_MIN_MB, Math.min(n, Math.max(HEAP_MIN_MB, hostMb)));
     }
     function storageDir(env = process.env) {
       if (env.MULTICORE_STORAGE) return path.resolve(env.MULTICORE_STORAGE);
@@ -49,6 +56,9 @@ var require_config = __commonJS({
     }
     function statusPath(env = process.env) {
       return path.join(path.dirname(configPath(env)), "status.json");
+    }
+    function eventsPath(env = process.env) {
+      return path.join(path.dirname(configPath(env)), "events.log");
     }
     function maxWorkers(env = process.env) {
       const fromEnv = Number(env.MULTICORE_MAX_WORKERS);
@@ -68,6 +78,7 @@ var require_config = __commonJS({
           enabled: Boolean(raw.enabled),
           workers: clampWorkers(raw.workers, env),
           affinity: normalizeAffinity(raw.affinity),
+          heapMb: normalizeHeapMb(raw.heapMb),
           updatedAt: raw.updatedAt || null,
           updatedBy: raw.updatedBy || null
         };
@@ -82,6 +93,7 @@ var require_config = __commonJS({
         enabled: Boolean(config.enabled),
         workers: clampWorkers(config.workers, env),
         affinity: normalizeAffinity(config.affinity),
+        heapMb: normalizeHeapMb(config.heapMb),
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         updatedBy: config.updatedBy || null
       };
@@ -90,7 +102,20 @@ var require_config = __commonJS({
       fs.renameSync(tmp, file);
       return body;
     }
-    module2.exports = { AFFINITY_MODES, normalizeAffinity, DEFAULT_CONFIG, storageDir, configPath, statusPath, maxWorkers, clampWorkers, readConfig, writeConfig };
+    module2.exports = {
+      AFFINITY_MODES,
+      normalizeAffinity,
+      normalizeHeapMb,
+      DEFAULT_CONFIG,
+      storageDir,
+      configPath,
+      statusPath,
+      eventsPath,
+      maxWorkers,
+      clampWorkers,
+      readConfig,
+      writeConfig
+    };
   }
 });
 
@@ -133,7 +158,7 @@ function turnOffClusterMode(app, why) {
   try {
     const current = cfg.readConfig();
     if (!current.enabled) return false;
-    cfg.writeConfig({ enabled: false, workers: 1, updatedBy: `auto: ${why}` });
+    cfg.writeConfig({ ...current, enabled: false, workers: 1, updatedBy: `auto: ${why}` });
     app.logger.warn(`[multicore] ${why}: cluster mode switched off in ${cfg.configPath()}; the supervisor will return to a single process`);
     if (typeof process.send === "function" && process.env.MULTICORE_SUPERVISED === "1") {
       process.send({ cmd: "multicore", type: "apply" });
@@ -168,6 +193,7 @@ var RedisWorkerIdAllocator = class {
   rebind(app) {
     this.app = app;
     this.client = void 0;
+    if (this.id !== null) this.report();
   }
   async getClient() {
     if (!this.client?.isOpen) {
@@ -178,26 +204,48 @@ var RedisWorkerIdAllocator = class {
   key(id) {
     return `${keyPrefix()}:wid:${id}`;
   }
+  /** Ids held by the other live workers of this supervisor (see the class comment). */
+  avoided() {
+    const out = /* @__PURE__ */ new Set();
+    for (const part of String(process.env.MULTICORE_WID_AVOID || "").split(",")) {
+      const n = Number(part);
+      if (part.trim() !== "" && Number.isInteger(n) && n >= 0 && n < SLOTS) out.add(n);
+    }
+    return out;
+  }
+  /** Tell the supervisor which id this process holds, so that workers started later keep away from it. */
+  report() {
+    if (process.env.MULTICORE_SUPERVISED !== "1" || typeof process.send !== "function") return;
+    try {
+      process.send({ cmd: "multicore", type: "wid", id: this.id });
+    } catch (e) {
+    }
+  }
   async getWorkerId() {
     if (this.id !== null) return this.id;
     const client = await this.getClient();
+    const avoid = this.avoided();
     const start = Math.floor(Math.random() * SLOTS);
     for (let attempt = 0; attempt < 20; attempt += 1) {
       for (let i = 0; i < SLOTS; i += 1) {
         const id = (start + i) % SLOTS;
+        if (avoid.has(id) && attempt < 10) continue;
         const ok = await client.set(this.key(id), this.token, { NX: true, PX: LEASE_MS });
         if (ok === "OK") {
           this.id = id;
           this.timer = setInterval(() => this.renew().catch(() => void 0), RENEW_MS);
           this.timer.unref?.();
           this.app.logger.info(`[multicore] worker id ${id} leased`);
+          this.report();
           return id;
         }
       }
-      await sleep(1500);
+      await sleep(this.retryDelayMs);
     }
     throw new Error(`[multicore] no free worker id in Redis (${SLOTS} processes are already running?)`);
   }
+  /** Overridable for tests. */
+  retryDelayMs = 1500;
   /** Overridable for tests. */
   terminate(code = 1) {
     process.exit(code);

@@ -14,7 +14,15 @@ const DEFAULT_INTERVAL = 250;
 const DEFAULT_TIMEOUT = 15_000;
 const MAX_STREAM_LEN = 100_000;
 const RETRY_DELAY = 500;
+/** How often a worker looks for messages abandoned by a dead worker, and how often it marks its own running jobs as alive. */
 const CLAIM_EVERY = 10_000;
+/**
+ * A pending message is "abandoned" when nobody touched it for this long. A job that is still running is touched every
+ * CLAIM_EVERY ms by its worker, so only messages of a dead (or completely frozen) worker ever get this old.
+ */
+const STALLED_AFTER = 90_000;
+
+type Tuning = { claimEveryMs?: number; stalledAfterMs?: number };
 
 /**
  * IEventQueueAdapter backed by Redis Streams + a consumer group.
@@ -23,7 +31,9 @@ const CLAIM_EVERY = 10_000;
  *  consume   XREADGROUP (each message goes to exactly one worker in the whole cluster)
  *  success   XACK + XDEL
  *  failure   re-published with retried+1 (maxRetries), otherwise logged and dropped (same as the memory adapter)
- *  crash     messages left pending by a dead worker are taken over by XAUTOCLAIM after `timeout * 2 + 5s`
+ *  running   while the handler runs, its worker refreshes the message every 10 s (XCLAIM ... JUSTID), so a job that
+ *            takes minutes (an import, a long workflow) is never mistaken for an abandoned one and run twice
+ *  crash     messages left pending by a dead worker are taken over by XAUTOCLAIM after 90 s without a refresh
  *
  * Delivery is at-least-once: a worker that dies mid-job leaves it pending and another worker re-runs it.
  */
@@ -37,12 +47,19 @@ export class RedisQueueAdapter {
   private subs = new Map<string, { event: QueueEvent; stop: boolean; inflight: number; reader?: any }>();
   private claimTimer?: NodeJS.Timeout;
   private prefix: string;
+  private claimEveryMs: number;
+  private stalledAfterMs: number;
+  /** stream -> ids of the messages whose handler is running in this process right now */
+  private running = new Map<string, Set<string>>();
 
   constructor(
     private app: any,
     prefix?: string,
+    tuning: Tuning = {},
   ) {
     this.prefix = prefix || keyPrefix();
+    this.claimEveryMs = tuning.claimEveryMs || CLAIM_EVERY;
+    this.stalledAfterMs = tuning.stalledAfterMs || STALLED_AFTER;
   }
 
   private stream(channel: string) {
@@ -61,7 +78,10 @@ export class RedisQueueAdapter {
     if (this.connected) return;
     this.client = await this.app.redisConnectionManager.getConnectionSync('mcore:queue');
     this.connected = true;
-    this.claimTimer = setInterval(() => this.claimStalled().catch(() => undefined), CLAIM_EVERY);
+    this.claimTimer = setInterval(() => {
+      this.touchRunning().catch(() => undefined);
+      this.claimStalled().catch(() => undefined);
+    }, this.claimEveryMs);
     this.claimTimer.unref?.();
     this.logger.info(`[multicore] queue adapter connected (consumer ${this.consumerId})`);
     // channels subscribed before connect()
@@ -193,6 +213,9 @@ export class RedisQueueAdapter {
       return;
     }
     const { timeout = DEFAULT_TIMEOUT, maxRetries = 0, retried = 0 } = options;
+    let ids = this.running.get(stream);
+    if (!ids) this.running.set(stream, (ids = new Set()));
+    ids.add(entry.id);
     try {
       await event.process(content, { id: entry.id, retried, signal: AbortSignal.timeout(timeout), queueOptions: options });
     } catch (error: any) {
@@ -203,16 +226,35 @@ export class RedisQueueAdapter {
       } else {
         this.logger.error(`[multicore] queue "${channel}" message ${entry.id} failed: ${error?.message}`, { error });
       }
+    } finally {
+      ids.delete(entry.id);
     }
     await this.ack(stream, entry.id);
   }
 
   private async ack(stream: string, id: string) {
     try {
-      await this.client.xAck(stream, GROUP, id);
-      await this.client.xDel(stream, id);
+      // both commands leave in the same tick, i.e. in one network round trip
+      await Promise.all([this.client.xAck(stream, GROUP, id), this.client.xDel(stream, id)]);
     } catch (error: any) {
       this.logger.warn(`[multicore] queue ack failed for ${id}: ${error?.message}`);
+    }
+  }
+
+  /**
+   * Jobs that are still running here: claim them for ourselves again, which resets their idle time in Redis without
+   * counting as a new delivery (JUSTID). Without this, any job longer than the takeover threshold would be picked up
+   * by another worker and run a second time while the first run is still in progress.
+   */
+  private async touchRunning() {
+    if (!this.connected) return;
+    for (const [stream, ids] of this.running.entries()) {
+      if (!ids.size) continue;
+      try {
+        await this.client.sendCommand(['XCLAIM', stream, GROUP, this.consumerId, '0', ...ids, 'JUSTID']);
+      } catch (error: any) {
+        this.logger.warn(`[multicore] queue: could not refresh running messages on ${stream}: ${error?.message}`);
+      }
     }
   }
 
@@ -222,16 +264,16 @@ export class RedisQueueAdapter {
     for (const [channel, sub] of this.subs.entries()) {
       if (sub.stop || !sub.event.idle()) continue;
       const stream = this.stream(channel);
-      const minIdle = DEFAULT_TIMEOUT * 2 + 5000;
       let result: any;
       try {
-        result = await this.client.xAutoClaim(stream, GROUP, this.consumerId, minIdle, '0-0', { COUNT: 5 });
+        result = await this.client.xAutoClaim(stream, GROUP, this.consumerId, this.stalledAfterMs, '0-0', { COUNT: 5 });
       } catch (error: any) {
         if (String(error?.message).includes('NOGROUP')) continue;
         throw error;
       }
       for (const message of result?.messages || []) {
         if (!message) continue;
+        if (this.running.get(stream)?.has(message.id)) continue; // our own job, simply slow
         this.logger.warn(`[multicore] queue "${channel}": took over stalled message ${message.id}`);
         this.dispatch(channel, stream, sub, message);
       }
